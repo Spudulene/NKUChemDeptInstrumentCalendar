@@ -1,0 +1,250 @@
+// NKU Chemistry Department — Instrument Calendar
+//
+// Design notes that are easy to lose track of later:
+//
+//   * All booking timestamps are `timestamptz`. Times-of-day on BookingWindow are
+//     stored as minutes-from-midnight in the campus timezone (see src/lib/time.ts),
+//     NOT as timestamps — a window is a recurring rule, not an instant.
+//   * A window whose endMinute <= startMinute crosses midnight (the overnight case,
+//     e.g. 17:00 -> 08:00). Nothing else in the schema needs to know that; expansion
+//     into concrete intervals happens in src/lib/booking/windows.ts.
+//   * Double-booking is prevented by a Postgres exclusion constraint, not by
+//     application code. See prisma/migrations/*_booking_no_overlap. It is scoped to
+//     status = 'CONFIRMED', which is what makes preemption work: flipping a booking
+//     to PREEMPTED drops it out of the index and frees the slot in the same txn.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  STUDENT
+  INSTRUCTOR
+  ADMIN
+}
+
+enum BookingType {
+  STUDENT
+  CLASS
+  MAINTENANCE
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED // withdrawn by the owner or an admin
+  PREEMPTED // displaced by a higher-priority booking
+  COMPLETED
+  NO_SHOW
+}
+
+enum Weekday {
+  SUN
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
+}
+
+model User {
+  id    String @id @default(cuid())
+  email String @unique
+  name  String
+
+  /// Entra ID `oid` claim. Stable across email changes, so this is the real
+  /// identity key once SSO lands; null for dev-login and seeded users.
+  entraObjectId String? @unique
+
+  role Role @default(STUDENT)
+
+  /// Whether this person appears in the research-advisor picker.
+  ///
+  /// Deliberately separate from Role: being someone's PI is not a reason to grant
+  /// class-booking and preemption rights. Advisors often never sign in at all — an
+  /// admin creates the row, and if they do log in later, `signInFromEntra` matches on
+  /// email and the account simply activates.
+  isResearchAdvisor Boolean @default(false)
+
+  /// The student's current research advisor, if they are in a group. Bookings default
+  /// to this but store their own copy — see Booking.advisorId.
+  advisorId String?
+  advisor   User?   @relation("ResearchGroup", fields: [advisorId], references: [id], onDelete: SetNull)
+  advisees  User[]  @relation("ResearchGroup")
+
+  bookings        Booking[] @relation("BookingOwner")
+  createdBookings Booking[] @relation("BookingCreator")
+  advisedBookings Booking[] @relation("BookingAdvisor")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+  @@index([isResearchAdvisor])
+  @@index([advisorId])
+}
+
+model Instrument {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  slug        String  @unique
+  location    String?
+  description String?
+
+  /// Tailwind-ish hex used for calendar blocks.
+  color String @default("#6366f1")
+
+  /// Instruments are archived, never deleted — deleting one orphans booking history.
+  isActive Boolean @default(true)
+
+  // ---- Policy that applies across every window ----
+
+  /// How far ahead bookings may be created.
+  bookingHorizonDays Int @default(30)
+
+  /// A booking must start at least this far in the future.
+  minLeadTimeMinutes Int @default(0)
+
+  /// Bookings may not be cancelled by the owner within this window of their start.
+  cancellationDeadlineMinutes Int @default(120)
+
+  /// Dead time enforced between consecutive bookings (sample changeover, reshimming).
+  bufferMinutes Int @default(0)
+
+  /// Cap across all windows, per campus calendar week (Sun–Sat). Null = uncapped.
+  maxMinutesPerUserPerWeek Int?
+
+  /// Require students to name a research advisor when booking. Per-instrument rather
+  /// than department-wide so attribution can be enforced on the NMR without blocking
+  /// walk-up use of the FTIR by students who aren't in a group.
+  requireResearchAdvisor Boolean @default(false)
+
+  windows  BookingWindow[]
+  bookings Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+/// A recurring band of bookable time with its own rules. An instrument typically has
+/// a "Daytime" window (short slots, weekdays) and an "Overnight" window (one whole
+/// block, 17:00->08:00). Keeping duration/slot rules here rather than on Instrument
+/// is what lets overnight runs be long without also permitting a 15-hour Tuesday.
+model BookingWindow {
+  id           String     @id @default(cuid())
+  instrumentId String
+  instrument   Instrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+
+  name String
+
+  /// Days the window *starts* on. An overnight window listed as FRI runs Fri 17:00
+  /// through Sat 08:00.
+  daysOfWeek Weekday[]
+
+  /// Minutes from midnight, campus-local. endMinute <= startMinute means the window
+  /// crosses midnight into the following day.
+  startMinute Int
+  endMinute   Int
+
+  maxDurationMinutes Int
+  minDurationMinutes Int @default(30)
+
+  /// Booking starts must land on this grid, measured from the window start.
+  slotSizeMinutes Int @default(30)
+
+  /// True for overnight blocks: you take the window or nothing.
+  wholeBlockOnly Boolean @default(false)
+
+  /// Cap on contiguous slots in a single booking. Null = only maxDurationMinutes applies.
+  maxConsecutiveSlots Int?
+
+  /// Per-user cap on bookings in this window per campus calendar week. Null = uncapped.
+  /// Matters most for overnight: ~5 slots a week per instrument, and one person can
+  /// otherwise take all of them.
+  maxBookingsPerUserPerWeek Int?
+
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  bookings Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([instrumentId, isActive])
+}
+
+model Booking {
+  id String @id @default(cuid())
+
+  instrumentId String
+  instrument   Instrument @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
+
+  /// Whose booking this is. For MAINTENANCE this is the admin who owns it.
+  userId String
+  user   User   @relation("BookingOwner", fields: [userId], references: [id], onDelete: Restrict)
+
+  /// Differs from userId when an admin books on someone's behalf.
+  createdById String
+  createdBy   User   @relation("BookingCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  type   BookingType   @default(STUDENT)
+  status BookingStatus @default(CONFIRMED)
+
+  startsAt DateTime @db.Timestamptz(3)
+  endsAt   DateTime @db.Timestamptz(3)
+
+  /// Required for CLASS and MAINTENANCE — this text is what justifies a preemption
+  /// to the student who got bumped. Optional for student bookings.
+  description String?
+
+  /// The research group this time is attributed to.
+  ///
+  /// Copied from the student's advisor at creation rather than read through the
+  /// relation, for the same reason as policySnapshot: students change groups, and a
+  /// report on last semester's usage has to reflect who the time was for at the time,
+  /// not who the student works for now.
+  advisorId String?
+  advisor   User?   @relation("BookingAdvisor", fields: [advisorId], references: [id], onDelete: SetNull)
+
+  /// Which window this was booked under. Null for CLASS/MAINTENANCE, which are not
+  /// constrained by windows.
+  windowId String?
+  window   BookingWindow? @relation(fields: [windowId], references: [id], onDelete: SetNull)
+
+  /// The window rules as they stood at creation time. Without this, an admin editing
+  /// a window retroactively invalidates existing bookings and validation has to
+  /// reason about "what were the rules in March".
+  policySnapshot Json?
+
+  // ---- Preemption trail ----
+
+  preemptedByBookingId String?
+  preemptedBy          Booking?  @relation("Preemption", fields: [preemptedByBookingId], references: [id], onDelete: SetNull)
+  preempted            Booking[] @relation("Preemption")
+  preemptedAt          DateTime?
+
+  /// Set once the "you were bumped" email goes out, so a retry cannot double-send.
+  preemptionNotifiedAt DateTime?
+
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Covers the common calendar read: one instrument, one week.
+  @@index([instrumentId, startsAt])
+  @@index([userId, startsAt])
+  @@index([status, startsAt])
+  @@index([preemptedByBookingId])
+  // Usage-by-research-group reporting.
+  @@index([advisorId, startsAt])
+}

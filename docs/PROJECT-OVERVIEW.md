@@ -303,5 +303,5 @@ Low, but not zero. Realistically:
 The repository contains full technical documentation in `README.md`, including the
 architecture, the reasoning behind the design decisions, and setup instructions. The
 booking rules are covered by an automated test suite (`npm run db:verify`) that runs
-against a real database and checks 35 behaviours, including the daylight saving edge
+against a real database and checks 42 behaviours, including the daylight saving edge
 cases and the conflict-prevention guarantees.

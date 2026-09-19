@@ -13,20 +13,30 @@ Resend. Deploys to Vercel with Neon Postgres.
 
 ```bash
 npm install
-cp .env.example .env      # then fill in DATABASE_URL / DIRECT_URL
+cp .env.example .env      # defaults already match compose.yaml
+npm run db:up             # Postgres on :5433, waits until it accepts connections
 npm run db:deploy         # apply migrations
-npm run db:seed           # three sample instruments, four sample users
+npm run db:seed           # three sample instruments, seven sample users
 npm run dev
 ```
 
-No Postgres handy? `npx prisma dev` starts a throwaway one and prints the URLs to
-paste into `.env`. It picks a fresh port each run.
+`npm run db:up` starts the Postgres defined in [`compose.yaml`](compose.yaml) and does
+not return until the container reports healthy, so nothing after it can race a database
+that is still starting. `npm run db:down` stops it; the data sits in a named volume and
+survives. Port 5433, because a machine-wide Postgres usually already holds 5432.
+
+⚠️ Don't use `npx prisma dev` on this project. It picks a **fresh ephemeral port on
+every restart**, which silently invalidates the URLs in `.env` — the failure surfaces as
+`ECONNREFUSED` from application code rather than as the stale config it is. Its proxy
+also **serialises connections**, dropping the second one, so any page running queries
+concurrently fails with `Connection terminated unexpectedly` unless you pin
+`DATABASE_POOL_MAX="1"`. Against the container above, leave that unset.
 
 Sign in at [/dev-login](http://localhost:3000/dev-login) with any email. Addresses in
 `ADMIN_EMAILS` become admins; everyone else becomes a student.
 
 ```bash
-npm run db:verify    # 30 checks against a real database — see below
+npm run db:verify    # 42 checks against a real database — see below
 npm run typecheck
 npm run lint
 ```
@@ -99,6 +109,19 @@ later, `signInFromEntra` matches on email and the account activates.
 `Instrument.requireResearchAdvisor` makes attribution mandatory per instrument, so it
 can be enforced on the NMR without blocking walk-up FTIR use by students who aren't in
 a group.
+
+### The calendar offers only slots the rules permit
+
+[`slots.ts`](src/lib/booking/slots.ts) computes, server-side, every start a student
+could pick and the lengths available from each — accounting for existing bookings, the
+changeover buffer, slot grid, duration caps, and the consecutive-slot limit. The
+calendar renders those as clickable targets, so the booking dialog offers only choices
+that will be accepted.
+
+This is a UI honesty measure, not enforcement. The server action re-validates through
+the same rule chain on submit, and the exclusion constraint sits behind that — someone
+else can always take a slot between page render and click, and that path returns a
+clear error with alternatives rather than a failure.
 
 ### Validation is a rule chain
 
@@ -178,8 +201,10 @@ SMTP, so blocked outbound port 587 is irrelevant.
 
 ## Still to build
 
-- **Booking form and drag-to-select.** The engine is done and tested; the UI on top of
-  it is not. The instrument page is currently read-only.
+- **The instructor class-booking UI.** `createPriorityBooking` and
+  `previewPreemption` are done and tested, including the confirm-before-cancelling
+  flow; there is no screen driving them yet. Students can book and cancel through the
+  calendar today.
 - **Entra SSO.** [`src/lib/auth.ts`](src/lib/auth.ts) has `signInFromEntra` ready for
   an OAuth callback to call. Needs an app registration with a redirect URI. The
   tenant check in that function is not optional — without it any Microsoft account on

@@ -20,6 +20,22 @@ const schema = z.object({
    */
   DIRECT_URL: z.string().min(1).optional(),
 
+  /**
+   * Connections per application instance.
+   *
+   * Tunable because the right value depends entirely on the host. On Vercel every
+   * warm lambda holds its own pool, so this multiplies by however many instances
+   * Vercel decides to run — keep it small. On a single VM it can be much larger.
+   * The local `prisma dev` proxy serialises connections and needs 1.
+   */
+  // Preprocessed because an unset variable in a .env file arrives as "", which
+  // coerces to 0 and would otherwise fail the minimum for everyone who copies the
+  // template without editing this line.
+  DATABASE_POOL_MAX: z.preprocess(
+    (value) => (value === "" || value === undefined ? undefined : value),
+    z.coerce.number().int().min(1).max(50).default(5),
+  ),
+
   /** Everything students see is rendered in this zone, never the browser's. */
   CAMPUS_TIMEZONE: z.string().default("America/New_York"),
 

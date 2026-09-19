@@ -1,10 +1,8 @@
-import {
-  addCivilDays,
-  civilToInstant,
-  civilToISODate,
-  formatTimeOnly,
-  type CivilDate,
-} from "@/lib/time";
+"use client";
+
+import { useState } from "react";
+import type { BookableSlot } from "@/lib/booking/slots";
+import { BookingDialog, type AdvisorOption } from "@/components/booking-dialog";
 
 export type GridBlock = {
   id: string;
@@ -15,8 +13,15 @@ export type GridBlock = {
   tone: "student" | "mine" | "class" | "maintenance";
 };
 
-export type GridBand = {
-  id: string;
+export type GridBand = { id: string; start: Date; end: Date };
+
+export type GridDay = {
+  /** YYYY-MM-DD, campus-local. Used as the column key. */
+  key: string;
+  weekday: string;
+  dayOfMonth: number;
+  isToday: boolean;
+  /** Column bounds as instants, so DST days lay out at their real length. */
   start: Date;
   end: Date;
 };
@@ -30,77 +35,104 @@ const TONE_CLASSES: Record<GridBlock["tone"], string> = {
 
 const HOUR_LABELS = [0, 3, 6, 9, 12, 15, 18, 21];
 
+const hourLabel = (hour: number) =>
+  hour === 0 ? "12a" : hour < 12 ? `${hour}a` : hour === 12 ? "12p" : `${hour - 12}p`;
+
 /**
  * A week of one instrument, one column per campus day.
  *
  * Anything crossing midnight — every overnight booking — is clipped per column and
  * drawn as two pieces. Positions are a fraction of each column's real duration, so
  * the 23- and 25-hour DST days lay out correctly instead of overflowing.
+ *
+ * Day boundaries are computed on the server and passed in as instants; this component
+ * never does timezone arithmetic, which keeps the campus-time rule in one place.
  */
 export function WeekGrid({
-  weekStart,
+  slug,
+  days,
   bands,
   blocks,
-  today,
+  slots,
+  advisors,
+  defaultAdvisorId,
+  advisorRequired,
+  timeZone,
+  canBook,
 }: {
-  weekStart: CivilDate;
+  slug: string;
+  days: GridDay[];
   bands: GridBand[];
   blocks: GridBlock[];
-  today: CivilDate;
+  slots: BookableSlot[];
+  advisors: AdvisorOption[];
+  defaultAdvisorId: string | null;
+  advisorRequired: boolean;
+  timeZone: string;
+  canBook: boolean;
 }) {
-  const days = Array.from({ length: 7 }, (_, i) => addCivilDays(weekStart, i));
-  const todayKey = civilToISODate(today);
+  const [selected, setSelected] = useState<BookableSlot | null>(null);
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
-      <div className="min-w-3xl">
-        <div className="grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))] border-b border-stone-200">
-          <div />
-          {days.map((day) => {
-            const isToday = civilToISODate(day) === todayKey;
-            return (
+    <>
+      <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
+        <div className="min-w-3xl">
+          <div className="grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))] border-b border-stone-200">
+            <div />
+            {days.map((day) => (
               <div
-                key={civilToISODate(day)}
+                key={day.key}
                 className={`px-2 py-2 text-center text-xs ${
-                  isToday ? "font-semibold text-stone-900" : "text-stone-500"
+                  day.isToday ? "font-semibold text-stone-900" : "text-stone-500"
                 }`}
               >
-                <div>
-                  {new Date(Date.UTC(day.y, day.m - 1, day.d)).toLocaleDateString(
-                    "en-US",
-                    { weekday: "short", timeZone: "UTC" },
-                  )}
+                <div>{day.weekday}</div>
+                <div className={day.isToday ? "text-indigo-600" : ""}>
+                  {day.dayOfMonth}
                 </div>
-                <div className={isToday ? "text-indigo-600" : ""}>{day.d}</div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))]">
-          <div className="relative h-[36rem]">
-            {HOUR_LABELS.map((hour) => (
-              <div
-                key={hour}
-                className="absolute right-2 -translate-y-1/2 text-[10px] text-stone-400"
-                style={{ top: `${(hour / 24) * 100}%` }}
-              >
-                {hour === 0 ? "12a" : hour < 12 ? `${hour}a` : hour === 12 ? "12p" : `${hour - 12}p`}
               </div>
             ))}
           </div>
 
-          {days.map((day) => (
-            <DayColumn
-              key={civilToISODate(day)}
-              day={day}
-              bands={bands}
-              blocks={blocks}
-            />
-          ))}
+          <div className="grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))]">
+            <div className="relative h-[36rem]">
+              {HOUR_LABELS.map((hour) => (
+                <div
+                  key={hour}
+                  className="absolute right-2 -translate-y-1/2 text-[10px] text-stone-400"
+                  style={{ top: `${(hour / 24) * 100}%` }}
+                >
+                  {hourLabel(hour)}
+                </div>
+              ))}
+            </div>
+
+            {days.map((day) => (
+              <DayColumn
+                key={day.key}
+                day={day}
+                bands={bands}
+                blocks={blocks}
+                slots={canBook ? slots : []}
+                onSelect={setSelected}
+              />
+            ))}
+          </div>
         </div>
       </div>
-    </div>
+
+      {selected && (
+        <BookingDialog
+          slug={slug}
+          slot={selected}
+          advisors={advisors}
+          defaultAdvisorId={defaultAdvisorId}
+          advisorRequired={advisorRequired}
+          timeZone={timeZone}
+          onClose={() => setSelected(null)}
+        />
+      )}
+    </>
   );
 }
 
@@ -108,28 +140,35 @@ function DayColumn({
   day,
   bands,
   blocks,
+  slots,
+  onSelect,
 }: {
-  day: CivilDate;
+  day: GridDay;
   bands: GridBand[];
   blocks: GridBlock[];
+  slots: BookableSlot[];
+  onSelect: (slot: BookableSlot) => void;
 }) {
-  const dayStart = civilToInstant(day, 0);
-  const dayEnd = civilToInstant(addCivilDays(day, 1), 0);
-  const span = dayEnd.getTime() - dayStart.getTime();
+  const dayStart = day.start.getTime();
+  const span = day.end.getTime() - dayStart;
 
   /** Fraction of the column an interval occupies, or null if it misses this day. */
   const place = (start: Date, end: Date) => {
-    const from = Math.max(start.getTime(), dayStart.getTime());
-    const to = Math.min(end.getTime(), dayEnd.getTime());
+    const from = Math.max(start.getTime(), dayStart);
+    const to = Math.min(end.getTime(), day.end.getTime());
     if (to <= from) return null;
 
     return {
-      top: ((from - dayStart.getTime()) / span) * 100,
+      top: ((from - dayStart) / span) * 100,
       height: ((to - from) / span) * 100,
-      clippedStart: start.getTime() < dayStart.getTime(),
-      clippedEnd: end.getTime() > dayEnd.getTime(),
+      clippedStart: start.getTime() < dayStart,
+      clippedEnd: end.getTime() > day.end.getTime(),
     };
   };
+
+  const daySlots = slots.filter(
+    (slot) => slot.start.getTime() >= dayStart && slot.start.getTime() < day.end.getTime(),
+  );
 
   return (
     <div className="relative h-[36rem] border-l border-stone-100">
@@ -153,25 +192,43 @@ function DayColumn({
         );
       })}
 
+      {/* Beneath the booked blocks, so a taken slot can never be clicked. */}
+      {daySlots.map((slot) => {
+        const shortest = slot.durations[0];
+        const end = new Date(slot.start.getTime() + shortest * 60_000);
+        const pos = place(slot.start, end);
+        if (!pos) return null;
+
+        return (
+          <button
+            key={slot.start.getTime()}
+            type="button"
+            onClick={() => onSelect(slot)}
+            title={`Book ${slot.windowName}`}
+            className="group absolute inset-x-0.5 rounded border border-transparent transition hover:border-indigo-300 hover:bg-indigo-50/80"
+            style={{ top: `${pos.top}%`, height: `${pos.height}%` }}
+          >
+            <span className="pointer-events-none flex h-full items-center justify-center text-[11px] font-medium text-indigo-600 opacity-0 transition group-hover:opacity-100">
+              +
+            </span>
+          </button>
+        );
+      })}
+
       {blocks.map((block) => {
         const pos = place(block.start, block.end);
         if (!pos) return null;
         return (
           <div
             key={`${block.id}-${block.start.getTime()}`}
-            className={`absolute inset-x-0.5 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight ${TONE_CLASSES[block.tone]} ${
+            className={`pointer-events-none absolute inset-x-0.5 overflow-hidden rounded border px-1 py-0.5 text-[10px] leading-tight ${TONE_CLASSES[block.tone]} ${
               pos.clippedStart ? "rounded-t-none border-t-0" : ""
             } ${pos.clippedEnd ? "rounded-b-none border-b-0" : ""}`}
             style={{ top: `${pos.top}%`, height: `${pos.height}%` }}
-            title={`${block.label} · ${formatTimeOnly(block.start)}–${formatTimeOnly(block.end)}`}
+            title={block.label}
           >
-            {!pos.clippedStart && (
-              <div className="font-medium">{formatTimeOnly(block.start)}</div>
-            )}
-            <div className="truncate">{block.label}</div>
-            {block.sublabel && (
-              <div className="truncate opacity-75">{block.sublabel}</div>
-            )}
+            {!pos.clippedStart && <div className="truncate font-medium">{block.label}</div>}
+            {block.sublabel && <div className="truncate opacity-75">{block.sublabel}</div>}
           </div>
         );
       })}

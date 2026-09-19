@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { env } from "@/lib/env";
 import {
   addCivilDays,
   civilToInstant,
@@ -14,8 +15,10 @@ import {
   todayCivil,
 } from "@/lib/time";
 import { crossesMidnight, expandWindows, windowSpanMinutes } from "@/lib/booking/windows";
+import { computeBookableSlots } from "@/lib/booking/slots";
 import { findOpenings } from "@/lib/booking/availability";
-import { WeekGrid, type GridBlock } from "@/components/week-grid";
+import { WeekGrid, type GridBlock, type GridDay } from "@/components/week-grid";
+import { CancelBookingButton } from "@/components/cancel-booking-button";
 
 export default async function InstrumentPage({
   params,
@@ -36,7 +39,8 @@ export default async function InstrumentPage({
 
   if (!instrument) notFound();
 
-  const today = todayCivil();
+  const now = new Date();
+  const today = todayCivil(now);
   const requested = typeof week === "string" ? parseISODate(week) : null;
   const anchor = requested ?? today;
 
@@ -50,16 +54,29 @@ export default async function InstrumentPage({
   const rangeStart = civilToInstant(weekStart, 0);
   const rangeEnd = civilToInstant(weekEnd, 0);
 
-  const bookings = await db.booking.findMany({
-    where: {
-      instrumentId: instrument.id,
-      status: "CONFIRMED",
-      startsAt: { lt: rangeEnd },
-      endsAt: { gt: rangeStart },
-    },
-    include: { user: { select: { id: true, name: true } } },
-    orderBy: { startsAt: "asc" },
-  });
+  const [bookings, advisors, profile] = await Promise.all([
+    db.booking.findMany({
+      where: {
+        instrumentId: instrument.id,
+        status: "CONFIRMED",
+        startsAt: { lt: rangeEnd },
+        endsAt: { gt: rangeStart },
+      },
+      include: { user: { select: { id: true, name: true } } },
+      orderBy: { startsAt: "asc" },
+    }),
+    db.user.findMany({
+      where: { isResearchAdvisor: true },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    user
+      ? db.user.findUnique({
+          where: { id: user.id },
+          select: { advisorId: true },
+        })
+      : Promise.resolve(null),
+  ]);
 
   // A day early, so an overnight window opening Saturday still shades Sunday morning.
   const occurrences = expandWindows(
@@ -67,6 +84,44 @@ export default async function InstrumentPage({
     addCivilDays(weekStart, -1),
     weekEnd,
   );
+
+  const busy = bookings.map((b) => ({ start: b.startsAt, end: b.endsAt }));
+
+  // Only students book through this UI; instructors get the class-booking flow, which
+  // is not built yet.
+  const canBook = user?.role === "STUDENT";
+
+  const slots = canBook
+    ? computeBookableSlots({
+        windows: instrument.windows,
+        busy,
+        from: rangeStart,
+        to: rangeEnd,
+        earliest: new Date(
+          Math.max(
+            rangeStart.getTime(),
+            now.getTime() + instrument.minLeadTimeMinutes * 60_000,
+          ),
+        ),
+        latest: new Date(now.getTime() + instrument.bookingHorizonDays * 86_400_000),
+        bufferMinutes: instrument.bufferMinutes,
+      })
+    : [];
+
+  const days: GridDay[] = Array.from({ length: 7 }, (_, i) => {
+    const date = addCivilDays(weekStart, i);
+    return {
+      key: civilToISODate(date),
+      weekday: new Date(Date.UTC(date.y, date.m - 1, date.d)).toLocaleDateString(
+        "en-US",
+        { weekday: "short", timeZone: "UTC" },
+      ),
+      dayOfMonth: date.d,
+      isToday: compareCivil(date, today) === 0,
+      start: civilToInstant(date, 0),
+      end: civilToInstant(addCivilDays(date, 1), 0),
+    };
+  });
 
   const blocks: GridBlock[] = bookings.map((booking) => {
     const mine = user?.id === booking.user.id;
@@ -101,6 +156,10 @@ export default async function InstrumentPage({
     };
   });
 
+  const myBookings = user
+    ? bookings.filter((b) => b.user.id === user.id && b.endsAt > now)
+    : [];
+
   const shortest = Math.min(
     ...instrument.windows.map((w) =>
       w.wholeBlockOnly ? windowSpanMinutes(w) : w.minDurationMinutes,
@@ -111,8 +170,6 @@ export default async function InstrumentPage({
     durationMinutes: Number.isFinite(shortest) ? shortest : 60,
     limit: 3,
   });
-
-  const isCurrentWeek = compareCivil(weekStart, addCivilDays(today, -weekdayIndex)) === 0;
 
   return (
     <div className="space-y-6">
@@ -161,49 +218,93 @@ export default async function InstrumentPage({
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-stone-600">
-          Week of {civilToISODate(weekStart)}
-          {isCurrentWeek && <span className="ml-2 text-stone-400">(this week)</span>}
+          {canBook ? (
+            <>Click any open time to book it.</>
+          ) : user ? (
+            <>Viewing the schedule. Class bookings aren&apos;t built yet.</>
+          ) : (
+            <>
+              <Link href="/dev-login" className="underline underline-offset-4">
+                Sign in
+              </Link>{" "}
+              to book time.
+            </>
+          )}
         </p>
         <ul className="flex flex-wrap gap-3 text-xs text-stone-500">
-          <Legend className="bg-emerald-50 border-emerald-200">Bookable</Legend>
+          <Legend className="bg-emerald-50 border-emerald-200">Open</Legend>
           <Legend className="bg-stone-200 border-stone-300">Booked</Legend>
+          <Legend className="bg-indigo-100 border-indigo-300">Yours</Legend>
           <Legend className="bg-amber-100 border-amber-300">Class</Legend>
           <Legend className="bg-rose-100 border-rose-300">Maintenance</Legend>
         </ul>
       </div>
 
       <WeekGrid
-        weekStart={weekStart}
-        today={today}
+        slug={slug}
+        days={days}
         bands={occurrences.map((o) => ({
           id: o.window.id,
           start: o.start,
           end: o.end,
         }))}
         blocks={blocks}
+        slots={slots}
+        advisors={advisors}
+        defaultAdvisorId={profile?.advisorId ?? null}
+        advisorRequired={instrument.requireResearchAdvisor}
+        timeZone={env.CAMPUS_TIMEZONE}
+        canBook={canBook}
       />
 
       <div className="grid gap-4 sm:grid-cols-2">
         <section className="rounded-xl border border-stone-200 bg-white p-5">
-          <h2 className="text-sm font-medium">Bookable hours</h2>
-          <dl className="mt-3 space-y-2 text-sm">
-            {instrument.windows.map((window) => (
-              <div key={window.id} className="flex justify-between gap-4">
-                <dt className="text-stone-600">{window.name}</dt>
-                <dd className="text-right text-stone-500">
-                  {minutesToClock(window.startMinute)}–{minutesToClock(window.endMinute)}
-                  {crossesMidnight(window) && (
-                    <span className="text-stone-400"> next day</span>
-                  )}
-                  <div className="text-xs text-stone-400">
-                    {window.wholeBlockOnly
-                      ? `one ${formatDurationMinutes(windowSpanMinutes(window))} block`
-                      : `${formatDurationMinutes(window.minDurationMinutes)}–${formatDurationMinutes(window.maxDurationMinutes)}, ${formatDurationMinutes(window.slotSizeMinutes)} steps`}
+          <h2 className="text-sm font-medium">
+            {myBookings.length > 0 ? "Your bookings this week" : "Bookable hours"}
+          </h2>
+
+          {myBookings.length > 0 ? (
+            <ul className="mt-3 space-y-3 text-sm">
+              {myBookings.map((booking) => (
+                <li
+                  key={booking.id}
+                  className="flex items-start justify-between gap-4 border-b border-stone-100 pb-3 last:border-0 last:pb-0"
+                >
+                  <div>
+                    <div className="text-stone-700">
+                      {formatRange(booking.startsAt, booking.endsAt)}
+                    </div>
+                    {booking.description && (
+                      <div className="text-xs text-stone-400">
+                        {booking.description}
+                      </div>
+                    )}
                   </div>
-                </dd>
-              </div>
-            ))}
-          </dl>
+                  <CancelBookingButton bookingId={booking.id} />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <dl className="mt-3 space-y-2 text-sm">
+              {instrument.windows.map((window) => (
+                <div key={window.id} className="flex justify-between gap-4">
+                  <dt className="text-stone-600">{window.name}</dt>
+                  <dd className="text-right text-stone-500">
+                    {minutesToClock(window.startMinute)}–
+                    {minutesToClock(window.endMinute)}
+                    {crossesMidnight(window) && (
+                      <span className="text-stone-400"> next day</span>
+                    )}
+                    <div className="text-xs text-stone-400">
+                      {window.wholeBlockOnly
+                        ? `one ${formatDurationMinutes(windowSpanMinutes(window))} block`
+                        : `${formatDurationMinutes(window.minDurationMinutes)}–${formatDurationMinutes(window.maxDurationMinutes)}`}
+                    </div>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          )}
         </section>
 
         <section className="rounded-xl border border-stone-200 bg-white p-5">
@@ -229,10 +330,6 @@ export default async function InstrumentPage({
               ))}
             </ul>
           )}
-          <p className="mt-4 border-t border-stone-100 pt-3 text-xs text-stone-400">
-            Booking form is not built yet — the engine behind it is (see
-            src/lib/booking/).
-          </p>
         </section>
       </div>
     </div>

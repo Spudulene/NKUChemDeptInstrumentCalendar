@@ -6,15 +6,15 @@ import { env } from "@/lib/env";
  * Prisma 7 runs the query compiler in-process and talks to Postgres through a
  * driver adapter, so the connection pool is ours to configure.
  *
- * `max: 5` is deliberate. On Vercel every warm lambda holds its own pool, and
- * Neon's pooler has a ceiling; a large per-instance pool multiplied by however
- * many instances Vercel decides to run is how you exhaust connections under the
- * exact load spike you built the app to handle.
+ * The default of 5 is deliberately small. On Vercel every warm lambda holds its own
+ * pool, and Neon's pooler has a ceiling; a large per-instance pool multiplied by
+ * however many instances Vercel runs is how you exhaust connections under the exact
+ * load spike you built the app to handle. See DATABASE_POOL_MAX for tuning.
  */
 function createClient() {
   const adapter = new PrismaPg({
     connectionString: env.DATABASE_URL,
-    max: 5,
+    max: env.DATABASE_POOL_MAX,
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 10_000,
   });

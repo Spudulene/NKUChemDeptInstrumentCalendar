@@ -1,0 +1,112 @@
+name: CI
+
+# Two jobs: prove the booking engine still holds, then publish images IT can pull.
+# Publishing is what makes "keep it up to date" a `docker compose pull` rather than a
+# build on the server.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    services:
+      # A real Postgres, not a mock. The overlap exclusion constraint and the DST
+      # behaviour are database guarantees — verifying them against anything else would
+      # only be testing the test.
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: instrument
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: instrument_calendar
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U instrument -d instrument_calendar"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgres://instrument:ci@localhost:5432/instrument_calendar
+      DIRECT_URL: postgres://instrument:ci@localhost:5432/instrument_calendar
+      AUTH_SECRET: ci-only-not-a-real-secret
+      CAMPUS_TIMEZONE: America/New_York
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run lint
+
+      - run: npm run db:deploy
+
+      # 42 checks, including the spring-forward and fall-back overnight cases and the
+      # constraint that makes double-booking impossible.
+      - run: npm run db:verify
+
+  images:
+    needs: verify
+    # Pull requests get the checks above but publish nothing.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        include:
+          # The application.
+          - target: runner
+            image: app
+          # Applies migrations, then exits. Deployment runs this to completion first.
+          - target: migrator
+            image: migrate
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.image }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,format=long
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

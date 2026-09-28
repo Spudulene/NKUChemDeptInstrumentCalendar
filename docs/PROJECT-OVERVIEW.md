@@ -187,7 +187,7 @@ nothing installed on lab machines — it runs in a browser.
 | **Database** | PostgreSQL 15+ (requires the standard `btree_gist` extension) |
 | **Authentication** | Microsoft Entra ID (OpenID Connect), single-tenant |
 | **Email** | Resend (HTTPS API — no SMTP, no mail server) |
-| **Hosting** | Vercel + Neon Postgres, or a campus VM + local Postgres |
+| **Hosting** | Docker containers on a campus VM |
 
 ## Authentication
 
@@ -241,29 +241,45 @@ All timestamps are stored in UTC and displayed in campus time, including correct
 handling of daylight saving transitions (an overnight run on the spring-forward night
 really is one hour shorter, and the system knows that).
 
-## Hosting — two options
+## Hosting — campus, in containers
 
-**Option A: Vercel + Neon.** Managed hosting, free tier adequate for this workload,
-nothing for IT to run or patch. Both are external SaaS providers, which may or may not
-be acceptable under university policy. Requires only a DNS record pointing a hostname
-at Vercel.
+The application ships as Docker images, which is how IT asked to run it.
 
-**Option B: campus VM.** The application is built to be portable and has no dependency
-on Vercel-specific features. Requirements:
+**What runs.** Four containers, defined in one `compose.yaml` in the repository:
 
-- Linux VM, 1–2 vCPU and 2 GB RAM is ample; this is a low-traffic application
-- Node.js 22 and PostgreSQL 15+ with `postgresql-contrib`
-- A reverse proxy with TLS (nginx or similar)
-- A scheduled job — cron or a systemd timer — making one authenticated HTTPS request
-  per day to a retry endpoint
-- Outbound HTTPS for sending email
+| Container | Role |
+| --- | --- |
+| `app` | The web application. One is enough for this workload. |
+| `migrate` | Applies database schema changes, then exits. Runs before `app` starts. |
+| `db` | PostgreSQL 17. Omit it if IT would rather supply the database. |
+| `cron` | Makes one authenticated request a day to a retry endpoint. |
 
-Either way the application is deployed from a Git repository and configured entirely
-through environment variables. It can also run under Docker if that's preferred.
+**What the VM needs.** A Linux host with Docker, 1–2 vCPU and 2 GB RAM — this is a
+low-traffic application — plus a TLS reverse proxy in front of it and outbound HTTPS for
+sending email. Node.js does not need installing; it is inside the image.
 
-Note that the daily scheduled job is a safety net, not the delivery path — notification
-emails are sent immediately when a booking is preempted. Nothing time-sensitive
-depends on how often that job runs.
+**Keeping it current.** Every push to the repository's main branch builds both images and
+publishes them to GitHub Container Registry, tagged by commit. Updating is a pull and a
+restart; rolling back is pulling the previous tag. Nothing is built on the server.
+
+**PostgreSQL.** Version 15 or newer, with the standard `btree_gist` extension — it ships
+with Postgres and lives in `postgresql-contrib` on Debian and Ubuntu. It is what makes
+double-booking impossible at the database level rather than merely unlikely. If IT
+supplies the database, the application's user needs to be able to create that extension
+once, or an administrator creates it beforehand.
+
+**Configuration** is entirely environment variables; no config files to edit. Two of them
+have no defaults and the stack refuses to start without them: the session signing key and
+the token protecting the scheduled endpoint. Both belong in whatever secret store IT
+already uses.
+
+**The daily scheduled job is a safety net, not the delivery path.** Notification emails go
+out within seconds of a booking being preempted. This run only retries ones that failed
+because the email provider was unreachable at that moment, so nothing time-sensitive
+depends on its frequency. A systemd timer works just as well as the container.
+
+**Backups** are the one genuinely manual responsibility: a scheduled dump of one Postgres
+database.
 
 ## Email
 
@@ -274,16 +290,16 @@ Volume is very low — notification emails only, well under a hundred per month.
 
 ## What we need from IT
 
-1. **A hostname** — a subdomain such as `instruments.nku.edu`, pointed either at
-   Vercel or at the campus VM depending on which hosting option is chosen.
+1. **A hostname** — a subdomain such as `instruments.nku.edu`, pointed at
+   the campus VM running the containers.
 2. **DNS records on that subdomain for sending email** — SPF and DKIM records, which
    Resend generates. This is what allows notification emails to come from an
    nku.edu address rather than an unfamiliar external domain that students' spam
    filters will distrust.
 3. **A redirect URI added to the existing app registration**, once the hostname is
    known. A two-minute change; no new registration needed.
-4. **If self-hosting:** the VM and Postgres instance described above, plus a backup
-   schedule for the database.
+4. **The VM and Postgres instance described above**, plus a backup schedule for the
+   database.
 
 Nothing here is urgent — the application runs locally for development without any of
 it. Items 1 and 2 are needed before students can use it.
@@ -293,8 +309,9 @@ it. Items 1 and 2 are needed before students can use it.
 Low, but not zero. Realistically:
 
 - Rotating the Entra client secret before it expires (every ~2 years)
-- Dependency updates, a few times a year
-- Database backups, if self-hosted
+- Dependency updates, a few times a year — these rebuild the image automatically
+- Database backups
+- Pulling a new image when the application is updated
 - Adding instructors and instruments, which is an admin task in the app rather than a
   technical one
 
@@ -303,5 +320,5 @@ Low, but not zero. Realistically:
 The repository contains full technical documentation in `README.md`, including the
 architecture, the reasoning behind the design decisions, and setup instructions. The
 booking rules are covered by an automated test suite (`npm run db:verify`) that runs
-against a real database and checks 35 behaviours, including the daylight saving edge
+against a real database and checks 42 behaviours, including the daylight saving edge
 cases and the conflict-prevention guarantees.

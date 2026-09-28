@@ -1,0 +1,116 @@
+# Two things in one file.
+#
+#   `npm run db:up`     starts only the database, for local development with `npm run dev`.
+#   `npm run stack:up`  builds and runs the whole thing — database, migrations, app, cron.
+#
+# The application services sit behind the `full` profile so that working on the code
+# locally does not also build and run a production image of it.
+#
+# For campus hosting this is the reference deployment: point the URLs at IT's Postgres
+# if they supply one, put a TLS reverse proxy in front of `app`, and nothing else here
+# changes.
+
+name: instrument-calendar
+
+x-db-url: &db-url
+  # Inside the compose network the database is reachable as `db:5432`. The 5433 in .env
+  # is the host-side mapping, for tooling run outside these containers.
+  ${DATABASE_URL_INTERNAL:-postgres://instrument:local-dev-only@db:5432/instrument_calendar}
+
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-instrument}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-only}
+      POSTGRES_DB: ${POSTGRES_DB:-instrument_calendar}
+    ports:
+      # Host port 5433: a machine-wide Postgres usually already holds 5432.
+      - "${DB_HOST_PORT:-5433}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      # Migrations and `npm run db:verify` fired at a database that is still starting
+      # fail in ways that read as application bugs. Wait on this rather than a sleep.
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-instrument} -d ${POSTGRES_DB:-instrument_calendar}"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  # Runs to completion, then the app starts. Applying migrations from the app's own
+  # entrypoint would mean every replica racing to do it, and would drag the Prisma CLI
+  # and its ~170 MB of dependencies into the image that serves traffic.
+  migrate:
+    profiles: ["full"]
+    build:
+      context: .
+      target: migrator
+    restart: "no"
+    environment:
+      DATABASE_URL: *db-url
+      # No pooler in this topology, so the CLI and the app share one endpoint. Against
+      # a pooled provider, DIRECT_URL is the unpooled host — PgBouncer in transaction
+      # mode cannot run migrations reliably.
+      DIRECT_URL: ${DIRECT_URL_INTERNAL:-postgres://instrument:local-dev-only@db:5432/instrument_calendar}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    profiles: ["full"]
+    build:
+      context: .
+      target: runner
+    restart: unless-stopped
+    ports:
+      - "${APP_HOST_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: *db-url
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      CAMPUS_TIMEZONE: ${CAMPUS_TIMEZONE:-America/New_York}
+      # Sessions are signed with this. A container that restarts with a different value
+      # silently signs everyone out, so it belongs in IT's secret store, not here.
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET must be set}
+      CRON_SECRET: ${CRON_SECRET:?CRON_SECRET must be set}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-Instrument Calendar <onboarding@resend.dev>}
+      ENTRA_TENANT_ID: ${ENTRA_TENANT_ID:-}
+      ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
+      ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET:-}
+      # One long-lived container, not many short-lived serverless instances, so the
+      # cautious default of 5 can go up.
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Retries preemption notices whose immediate send failed. Explicitly NOT the delivery
+  # path — students are mailed within seconds of being bumped — so the exact hour does
+  # not matter, which is why a plain loop is enough and there is no crontab file on disk
+  # holding the bearer token. Swap in a systemd timer hitting the same URL if IT prefers.
+  cron:
+    profiles: ["full"]
+    image: alpine:3.22
+    restart: unless-stopped
+    environment:
+      CRON_SECRET: ${CRON_SECRET:?CRON_SECRET must be set}
+    command:
+      - sh
+      - -c
+      - |
+        while true; do
+          wget -q -O- --header="Authorization: Bearer $$CRON_SECRET" \
+            http://app:3000/api/cron/notifications || echo "[cron] sweep failed, retrying tomorrow"
+          sleep 86400
+        done
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  db-data:

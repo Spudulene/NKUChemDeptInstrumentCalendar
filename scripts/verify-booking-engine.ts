@@ -14,6 +14,7 @@ import {
   type WindowRule,
 } from "@/lib/booking/windows";
 import { computeOpenings, findOpenings } from "@/lib/booking/availability";
+import { computeBookableSlots } from "@/lib/booking/slots";
 import { validateBooking } from "@/lib/booking/rules";
 import { deliverPreemptionNotices } from "@/lib/email";
 import {
@@ -176,7 +177,7 @@ async function main() {
     limit: 100,
   });
   check(
-    "an empty 8-hour window offers 17 half-hour-aligned starts for a 1h booking",
+    "a 9-hour window offers 17 half-hour-aligned starts for a 1h booking",
     openWhole.length === 17,
     `got ${openWhole.length}`,
   );
@@ -201,6 +202,118 @@ async function main() {
       o.end > civilToInstant(monday, hm(8, 45)),
   );
   check("suggestions respect existing bookings plus buffer", !collides);
+
+  // -------------------------------------------------------------------------
+  section("Bookable slots offered to the UI");
+  // -------------------------------------------------------------------------
+
+  const gridWindow = rule({
+    id: "grid",
+    name: "Daytime",
+    startMinute: hm(8),
+    endMinute: hm(17),
+    daysOfWeek: ["MON"],
+    minDurationMinutes: 30,
+    maxDurationMinutes: 120,
+    slotSizeMinutes: 30,
+    maxConsecutiveSlots: 4,
+  });
+
+  const wideOpen = computeBookableSlots({
+    windows: [gridWindow],
+    busy: [],
+    from: civilToInstant(monday, 0),
+    to: civilToInstant(addCivilDays(monday, 1), 0),
+    earliest: civilToInstant(monday, 0),
+    latest: civilToInstant(addCivilDays(monday, 30), 0),
+  });
+  check(
+    "a 9-hour window offers 18 half-hour starts (08:00 through 16:30)",
+    wideOpen.length === 18,
+    `got ${wideOpen.length}`,
+  );
+  check(
+    "the first start offers every length up to the 2-hour cap",
+    wideOpen[0]?.durations.join(",") === "30,60,90,120",
+    wideOpen[0]?.durations.join(","),
+  );
+
+  const nearClose = wideOpen[wideOpen.length - 1];
+  check(
+    "the last start before closing only offers what fits",
+    nearClose?.durations.join(",") === "30",
+    nearClose?.durations.join(","),
+  );
+
+  const constrained = computeBookableSlots({
+    windows: [gridWindow],
+    busy: [
+      {
+        start: civilToInstant(monday, hm(11)),
+        end: civilToInstant(monday, hm(12)),
+      },
+    ],
+    from: civilToInstant(monday, 0),
+    to: civilToInstant(addCivilDays(monday, 1), 0),
+    earliest: civilToInstant(monday, 0),
+    latest: civilToInstant(addCivilDays(monday, 30), 0),
+    bufferMinutes: 15,
+  });
+
+  const tenThirty = constrained.find(
+    (s) => s.start.getTime() === civilToInstant(monday, hm(10, 30)).getTime(),
+  );
+  check(
+    "a start near a booking is not offered a length that would collide",
+    tenThirty === undefined,
+    `10:30 offered ${tenThirty?.durations.join(",")}`,
+  );
+
+  const overlapping = constrained.some((slot) =>
+    slot.durations.some((d) => {
+      const end = new Date(slot.start.getTime() + d * 60_000);
+      return (
+        slot.start < civilToInstant(monday, hm(12, 15)) &&
+        end > civilToInstant(monday, hm(10, 45))
+      );
+    }),
+  );
+  check("no offered slot and length overlaps a booking or its buffer", !overlapping);
+
+  const overnightSlots = computeBookableSlots({
+    windows: [{ ...overnight, id: "on", daysOfWeek: ["MON"] }],
+    busy: [],
+    from: civilToInstant(monday, 0),
+    to: civilToInstant(addCivilDays(monday, 2), 0),
+    earliest: civilToInstant(monday, 0),
+    latest: civilToInstant(addCivilDays(monday, 30), 0),
+  });
+  check(
+    "an overnight window offers exactly one whole-block choice",
+    overnightSlots.length === 1 &&
+      overnightSlots[0].wholeBlock &&
+      overnightSlots[0].durations.join(",") === "900",
+    `${overnightSlots.length} slot(s)`,
+  );
+
+  const overnightTaken = computeBookableSlots({
+    windows: [{ ...overnight, id: "on", daysOfWeek: ["MON"] }],
+    busy: [
+      {
+        start: civilToInstant(monday, hm(20)),
+        end: civilToInstant(monday, hm(21)),
+      },
+    ],
+    from: civilToInstant(monday, 0),
+    to: civilToInstant(addCivilDays(monday, 2), 0),
+    earliest: civilToInstant(monday, 0),
+    latest: civilToInstant(addCivilDays(monday, 30), 0),
+  });
+  check(
+    "any encroachment removes the overnight block entirely",
+    overnightTaken.length === 0,
+    `${overnightTaken.length} slot(s)`,
+  );
 
   // -------------------------------------------------------------------------
   section("Database constraints");

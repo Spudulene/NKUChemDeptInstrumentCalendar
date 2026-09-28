@@ -1,0 +1,30 @@
+# .env comes first and deliberately. It holds AUTH_SECRET and real database
+# credentials, and `COPY . .` in the build stage would otherwise bake them into an
+# image layer that anyone able to pull the image can read back.
+.env
+.env.*
+
+# Reinstalled and rebuilt inside the image; copying the host's copies would drop
+# Windows-built native binaries into a Linux container.
+node_modules
+.next
+tsconfig.tsbuildinfo
+
+.git
+.gitignore
+
+# Editor and agent state.
+.claude
+.agents
+.windsurf
+.vscode
+
+# Documentation and container plumbing never affect the build output.
+README.md
+AGENTS.md
+CLAUDE.md
+docs
+compose.yaml
+Dockerfile
+.dockerignore
+skills-lock.json

@@ -25,6 +25,11 @@ not return until the container reports healthy, so nothing after it can race a d
 that is still starting. `npm run db:down` stops it; the data sits in a named volume and
 survives. Port 5433, because a machine-wide Postgres usually already holds 5432.
 
+Day to day, `npm run db:start` replaces the first two: it launches Docker Desktop if the
+engine isn't running (Windows and macOS), waits for it, then runs `db:up` and
+`db:deploy`. Every step is a no-op when already done, so it's safe to run every time
+before `npm run dev`.
+
 ⚠️ Don't use `npx prisma dev` on this project. It picks a **fresh ephemeral port on
 every restart**, which silently invalidates the URLs in `.env` — the failure surfaces as
 `ECONNREFUSED` from application code rather than as the stale config it is. Its proxy

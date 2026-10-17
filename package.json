@@ -9,6 +9,7 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "postinstall": "prisma generate",
+    "db:start": "tsx scripts/db-start.ts",
     "db:up": "docker compose up -d --wait db",
     "stack:up": "docker compose --profile full up -d --build --wait",
     "stack:down": "docker compose --profile full down",

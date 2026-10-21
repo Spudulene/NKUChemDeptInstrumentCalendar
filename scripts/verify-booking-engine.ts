@@ -673,6 +673,35 @@ async function main() {
   }
   check("preemption refuses to proceed without explicit confirmation", requiresConfirmation);
 
+  // The instructor reviewed an empty range, then a student booked into it before they
+  // confirmed. Confirming what they saw must not cancel what they didn't.
+  let unseenTargetRefused = false;
+  try {
+    await createPriorityBooking({
+      instrumentId: instrument.id,
+      request: {
+        userId: instructor.id,
+        start: civilToInstant(classDay, hm(9)),
+        end: civilToInstant(classDay, hm(12)),
+        type: "CLASS",
+        description: "CHE 320 — instrument training",
+      },
+      actor: { id: instructor.id, role: "INSTRUCTOR" },
+      confirmPreemption: true,
+      confirmedTargetIds: [],
+      notify: false,
+    });
+  } catch (error) {
+    unseenTargetRefused =
+      error instanceof BookingError && error.failure.code === "CONFIRMATION_REQUIRED";
+  }
+  check(
+    "confirming a stale preview does not cancel a booking the instructor never saw",
+    unseenTargetRefused &&
+      (await db.booking.findUniqueOrThrow({ where: { id: victim.id } })).status ===
+        "CONFIRMED",
+  );
+
   const priority = await createPriorityBooking({
     instrumentId: instrument.id,
     request: {
@@ -680,10 +709,12 @@ async function main() {
       start: civilToInstant(classDay, hm(9)),
       end: civilToInstant(classDay, hm(12)),
       type: "CLASS",
+      title: "CHE 320",
       description: "CHE 320 — instrument training",
     },
     actor: { id: instructor.id, role: "INSTRUCTOR" },
     confirmPreemption: true,
+    confirmedTargetIds: [victim.id],
     // Delivery is exercised separately below; this keeps the queue assertion honest.
     notify: false,
   });

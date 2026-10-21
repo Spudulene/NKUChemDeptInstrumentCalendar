@@ -201,6 +201,10 @@ model Booking {
   startsAt DateTime @db.Timestamptz(3)
   endsAt   DateTime @db.Timestamptz(3)
 
+  /// Short label for CLASS bookings ("CHE 310 — Instrumental Analysis"). Shown on the
+  /// calendar block and named in the preemption email; `description` carries the why.
+  title String?
+
   /// Required for CLASS and MAINTENANCE — this text is what justifies a preemption
   /// to the student who got bumped. Optional for student bookings.
   description String?

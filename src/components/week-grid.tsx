@@ -27,10 +27,10 @@ export type GridDay = {
 };
 
 const TONE_CLASSES: Record<GridBlock["tone"], string> = {
-  student: "bg-stone-200/90 border-stone-300 text-stone-700",
-  mine: "bg-indigo-100 border-indigo-300 text-indigo-900",
-  class: "bg-amber-100 border-amber-300 text-amber-900",
-  maintenance: "bg-rose-100 border-rose-300 text-rose-900",
+  student: "bg-surface border-line-2 text-ink",
+  mine: "bg-mine border-mine text-on-mine",
+  class: "stripes-class border-2 border-gold text-ink",
+  maintenance: "stripes-maintenance border-line-2 text-ink-2",
 };
 
 const HOUR_LABELS = [0, 3, 6, 9, 12, 15, 18, 21];
@@ -75,19 +75,19 @@ export function WeekGrid({
 
   return (
     <>
-      <div className="overflow-x-auto rounded-xl border border-stone-200 bg-white">
+      <div className="overflow-x-auto rounded-xl border border-line bg-surface">
         <div className="min-w-3xl">
-          <div className="grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))] border-b border-stone-200">
+          <div className="grid grid-cols-[3.5rem_repeat(7,minmax(0,1fr))] border-b border-line">
             <div />
             {days.map((day) => (
               <div
                 key={day.key}
                 className={`px-2 py-2 text-center text-xs ${
-                  day.isToday ? "font-semibold text-stone-900" : "text-stone-500"
+                  day.isToday ? "font-semibold text-ink" : "text-ink-3"
                 }`}
               >
                 <div>{day.weekday}</div>
-                <div className={day.isToday ? "text-indigo-600" : ""}>
+                <div className={day.isToday ? "text-mine" : ""}>
                   {day.dayOfMonth}
                 </div>
               </div>
@@ -99,7 +99,7 @@ export function WeekGrid({
               {HOUR_LABELS.map((hour) => (
                 <div
                   key={hour}
-                  className="absolute right-2 -translate-y-1/2 text-[10px] text-stone-400"
+                  className="absolute right-2 -translate-y-1/2 text-[10px] text-ink-3"
                   style={{ top: `${(hour / 24) * 100}%` }}
                 >
                   {hourLabel(hour)}
@@ -171,11 +171,11 @@ function DayColumn({
   );
 
   return (
-    <div className="relative h-[36rem] border-l border-stone-100">
+    <div className="relative h-[36rem] border-l border-line">
       {HOUR_LABELS.map((hour) => (
         <div
           key={hour}
-          className="absolute inset-x-0 border-t border-stone-100"
+          className="absolute inset-x-0 border-t border-line"
           style={{ top: `${(hour / 24) * 100}%` }}
         />
       ))}
@@ -186,7 +186,7 @@ function DayColumn({
         return (
           <div
             key={`${band.id}-${band.start.getTime()}`}
-            className="absolute inset-x-0 bg-emerald-50/70"
+            className="absolute inset-x-0 bg-ok-soft/70"
             style={{ top: `${pos.top}%`, height: `${pos.height}%` }}
           />
         );
@@ -205,10 +205,10 @@ function DayColumn({
             type="button"
             onClick={() => onSelect(slot)}
             title={`Book ${slot.windowName}`}
-            className="group absolute inset-x-0.5 rounded border border-transparent transition hover:border-indigo-300 hover:bg-indigo-50/80"
+            className="group absolute inset-x-0.5 rounded border border-transparent transition hover:border-mine hover:bg-mine-soft"
             style={{ top: `${pos.top}%`, height: `${pos.height}%` }}
           >
-            <span className="pointer-events-none flex h-full items-center justify-center text-[11px] font-medium text-indigo-600 opacity-0 transition group-hover:opacity-100">
+            <span className="pointer-events-none flex h-full items-center justify-center text-[11px] font-medium text-mine opacity-0 transition group-hover:opacity-100">
               +
             </span>
           </button>

@@ -41,7 +41,7 @@ Sign in at [/dev-login](http://localhost:3000/dev-login) with any email. Address
 `ADMIN_EMAILS` become admins; everyone else becomes a student.
 
 ```bash
-npm run db:verify    # 42 checks against a real database — see below
+npm run db:verify    # 43 checks against a real database — see below
 npm run typecheck
 npm run lint
 ```
@@ -282,10 +282,13 @@ also become relevant.
 
 ## Still to build
 
-- **The instructor class-booking UI.** `createPriorityBooking` and
-  `previewPreemption` are done and tested, including the confirm-before-cancelling
-  flow; there is no screen driving them yet. Students can book and cancel through the
-  calendar today.
+- **The rest of the design canvas.** The visual system (tokens, header, light/dark)
+  and the instructor's "Reserve for a class" screen (`/classes`) follow the
+  "Instrument Calendar — NKU Prototypes" canvas. The home page, week calendar, booking
+  dialog and phone layouts still have the old layouts in the new colours. "My bookings"
+  and the admin screens appear in the design's header but don't exist yet.
+- **Recurring class reservations.** A lab that meets every Tuesday for a semester is
+  reserved one date at a time today.
 - **Entra SSO.** [`src/lib/auth.ts`](src/lib/auth.ts) has `signInFromEntra` ready for
   an OAuth callback to call. Needs an app registration with a redirect URI. The
   tenant check in that function is not optional — without it any Microsoft account on

@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { env } from "@/lib/env";
 import { formatRange } from "@/lib/time";
 import { findOpenings } from "@/lib/booking/availability";
+import { preemptionExplanation } from "@/lib/notice-copy";
 
 const resend = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
 
@@ -80,7 +81,14 @@ async function pendingPreemptionNotices(bookingIds?: string[], limit = 50) {
       user: { select: { name: true, email: true } },
       instrument: { select: { id: true, name: true, slug: true, location: true } },
       preemptedBy: {
-        select: { description: true, type: true, startsAt: true, endsAt: true },
+        select: {
+          title: true,
+          description: true,
+          type: true,
+          startsAt: true,
+          endsAt: true,
+          user: { select: { name: true } },
+        },
       },
     },
     take: limit,
@@ -122,7 +130,13 @@ export async function deliverPreemptionNotices(
     }).catch(() => []);
 
     const reason = booking.preemptedBy?.description?.trim();
-    const kind = booking.preemptedBy?.type === "MAINTENANCE" ? "maintenance" : "a class";
+    const explanation = preemptionExplanation({
+      instrumentName: booking.instrument.name,
+      range: formatRange(booking.startsAt, booking.endsAt),
+      type: booking.preemptedBy?.type === "MAINTENANCE" ? "MAINTENANCE" : "CLASS",
+      title: booking.preemptedBy?.title ?? null,
+      reservedBy: booking.preemptedBy?.user.name ?? null,
+    });
     const bookingUrl = `${env.APP_URL}/instruments/${booking.instrument.slug}`;
 
     const openingsHtml = openings.length
@@ -135,12 +149,7 @@ export async function deliverPreemptionNotices(
     const html = layout(
       `Your ${escapeHtml(booking.instrument.name)} booking was cancelled`,
       `<p style="margin:0 0 16px;line-height:1.6;">Hi ${escapeHtml(booking.user.name.split(" ")[0])},</p>
-       <p style="margin:0 0 16px;line-height:1.6;">
-         Your booking on <strong>${escapeHtml(booking.instrument.name)}</strong> for
-         <strong>${escapeHtml(formatRange(booking.startsAt, booking.endsAt))}</strong>
-         has been cancelled. The instrument was reserved for ${kind}, which takes priority
-         over individual bookings.
-       </p>
+       <p style="margin:0 0 16px;line-height:1.6;">${escapeHtml(explanation)}</p>
        ${reason ? `<p style="margin:0 0 16px;padding:12px 16px;background:#f5f5f4;border-radius:8px;line-height:1.6;"><strong>Reason:</strong> ${escapeHtml(reason)}</p>` : ""}
        ${openingsHtml}
        <p style="margin:0 0 24px;line-height:1.6;">You can rebook any open time on the calendar.</p>
@@ -152,7 +161,7 @@ export async function deliverPreemptionNotices(
     const text = [
       `Hi ${booking.user.name.split(" ")[0]},`,
       "",
-      `Your booking on ${booking.instrument.name} for ${formatRange(booking.startsAt, booking.endsAt)} has been cancelled. The instrument was reserved for ${kind}, which takes priority over individual bookings.`,
+      explanation,
       reason ? `\nReason: ${reason}` : "",
       "",
       openings.length

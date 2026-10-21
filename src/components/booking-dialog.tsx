@@ -83,7 +83,7 @@ export function BookingDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -94,10 +94,10 @@ export function BookingDialog({
         aria-modal="true"
         aria-label="Confirm booking"
         tabIndex={-1}
-        className="w-full max-w-sm rounded-xl border border-stone-200 bg-white p-6 shadow-lg outline-none"
+        className="w-full max-w-sm rounded-xl border border-line bg-surface p-6 shadow-lg outline-none"
       >
         <h2 className="text-lg font-semibold tracking-tight">Book this time</h2>
-        <p className="mt-1 text-sm text-stone-500">
+        <p className="mt-1 text-sm text-ink-3">
           {slot.windowName}
           {slot.wholeBlock && " · booked as one full block"}
         </p>
@@ -113,7 +113,7 @@ export function BookingDialog({
             {slot.durations.length === 1 ? (
               <>
                 <input type="hidden" name="duration" value={slot.durations[0]} />
-                <p className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700">
+                <p className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">
                   {rangeLabel(slot.durations[0])}
                 </p>
               </>
@@ -122,7 +122,7 @@ export function BookingDialog({
                 id="duration"
                 name="duration"
                 defaultValue={slot.durations[0]}
-                className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-stone-500"
+                className="w-full rounded-lg border border-line-2 px-3 py-2 text-sm outline-none focus:border-ink-3"
               >
                 {slot.durations.map((minutes) => (
                   <option key={minutes} value={minutes}>
@@ -138,14 +138,14 @@ export function BookingDialog({
               <label htmlFor="advisorId" className="block text-sm font-medium">
                 Research group
                 {!advisorRequired && (
-                  <span className="font-normal text-stone-400"> (optional)</span>
+                  <span className="font-normal text-ink-3"> (optional)</span>
                 )}
               </label>
               <select
                 id="advisorId"
                 name="advisorId"
                 defaultValue={defaultAdvisorId ?? ""}
-                className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-stone-500"
+                className="w-full rounded-lg border border-line-2 px-3 py-2 text-sm outline-none focus:border-ink-3"
               >
                 <option value="">
                   {advisorRequired ? "Select a research group..." : "Not for a group"}
@@ -161,7 +161,7 @@ export function BookingDialog({
 
           <div className="space-y-1.5">
             <label htmlFor="description" className="block text-sm font-medium">
-              Note <span className="font-normal text-stone-400">(optional)</span>
+              Note <span className="font-normal text-ink-3">(optional)</span>
             </label>
             <input
               id="description"
@@ -169,15 +169,15 @@ export function BookingDialog({
               type="text"
               maxLength={120}
               placeholder="What you're running"
-              className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm outline-none focus:border-stone-500"
+              className="w-full rounded-lg border border-line-2 px-3 py-2 text-sm outline-none focus:border-ink-3"
             />
-            <p className="text-xs text-stone-400">
+            <p className="text-xs text-ink-3">
               Only you and the lab manager see this.
             </p>
           </div>
 
           {state.error && (
-            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+            <p className="rounded-lg border border-err/30 bg-err-soft px-3 py-2 text-sm text-err">
               {state.error}
             </p>
           )}
@@ -186,14 +186,14 @@ export function BookingDialog({
             <button
               type="submit"
               disabled={pending}
-              className="flex-1 rounded-lg bg-stone-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-stone-700 disabled:opacity-50"
+              className="flex-1 rounded-lg bg-gold px-4 py-2 text-sm font-medium text-on-gold transition hover:brightness-95 disabled:opacity-50"
             >
               {pending ? "Booking..." : "Confirm booking"}
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg border border-stone-300 px-4 py-2 text-sm transition hover:bg-stone-50"
+              className="rounded-lg border border-line-2 px-4 py-2 text-sm transition hover:bg-surface-2"
             >
               Cancel
             </button>

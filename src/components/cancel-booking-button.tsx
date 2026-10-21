@@ -20,12 +20,12 @@ export function CancelBookingButton({ bookingId }: { bookingId: string }) {
       <button
         type="submit"
         disabled={pending}
-        className="text-xs text-stone-500 underline-offset-4 transition hover:text-rose-700 hover:underline disabled:opacity-50"
+        className="text-xs text-ink-3 underline-offset-4 transition hover:text-err hover:underline disabled:opacity-50"
       >
         {pending ? "Cancelling..." : "Cancel"}
       </button>
       {/* The deadline rule lives on the server, so the reason surfaces here. */}
-      {state.error && <p className="mt-1 text-xs text-rose-700">{state.error}</p>}
+      {state.error && <p className="mt-1 text-xs text-err">{state.error}</p>}
     </form>
   );
 }

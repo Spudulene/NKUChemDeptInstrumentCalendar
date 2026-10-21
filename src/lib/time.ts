@@ -131,8 +131,12 @@ export function parseISODate(value: string): CivilDate | null {
   if (!match) return null;
   const [, y, m, d] = match;
   const date = { y: Number(y), m: Number(m), d: Number(d) };
-  // Round-trip catches things like 2026-02-31.
-  return civilToISODate(date) === value ? date : null;
+  // Date.UTC normalises 2026-02-31 to March 3; adding zero days round-trips through
+  // it, so anything that isn't a real calendar date comes back different.
+  const normalised = addCivilDays(date, 0);
+  return normalised.y === date.y && normalised.m === date.m && normalised.d === date.d
+    ? date
+    : null;
 }
 
 /** "17:30" — for admin config screens, where a 24h grid is easier to reason about. */

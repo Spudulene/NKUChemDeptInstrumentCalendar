@@ -41,6 +41,8 @@ export type BookingRequest = {
   start: Date;
   end: Date;
   type: BookingType;
+  /** Calendar label for class bookings. Ignored for student bookings. */
+  title?: string | null;
   description?: string | null;
   /**
    * Research group this time is for. Resolved by the caller before validation —

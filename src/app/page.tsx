@@ -20,7 +20,7 @@ export default async function HomePage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Instruments</h1>
-        <p className="mt-1 text-stone-600">
+        <p className="mt-1 text-ink-2">
           {user
             ? "Pick an instrument to see its schedule."
             : "Sign in with your university account to reserve time."}
@@ -28,7 +28,7 @@ export default async function HomePage() {
       </div>
 
       {instruments.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-stone-300 p-8 text-center text-stone-500">
+        <p className="rounded-lg border border-dashed border-line-2 p-8 text-center text-ink-3">
           No instruments yet. Run <code className="font-mono">npm run db:seed</code> to
           load the sample set.
         </p>
@@ -38,7 +38,7 @@ export default async function HomePage() {
             <li key={instrument.id}>
               <Link
                 href={`/instruments/${instrument.slug}`}
-                className="block h-full rounded-xl border border-stone-200 bg-white p-5 transition hover:border-stone-300 hover:shadow-sm"
+                className="block h-full rounded-xl border border-line bg-surface p-5 transition hover:border-line-2 hover:shadow-sm"
               >
                 <div className="flex items-start gap-3">
                   <span
@@ -49,28 +49,28 @@ export default async function HomePage() {
                   <div className="min-w-0">
                     <h2 className="font-medium">{instrument.name}</h2>
                     {instrument.location && (
-                      <p className="text-sm text-stone-500">{instrument.location}</p>
+                      <p className="text-sm text-ink-3">{instrument.location}</p>
                     )}
                   </div>
                 </div>
 
                 {instrument.description && (
-                  <p className="mt-3 text-sm leading-relaxed text-stone-600">
+                  <p className="mt-3 text-sm leading-relaxed text-ink-2">
                     {instrument.description}
                   </p>
                 )}
 
-                <dl className="mt-4 space-y-1.5 border-t border-stone-100 pt-3 text-sm">
+                <dl className="mt-4 space-y-1.5 border-t border-line pt-3 text-sm">
                   {instrument.windows.map((window) => (
                     <div key={window.id} className="flex justify-between gap-4">
-                      <dt className="text-stone-500">{window.name}</dt>
-                      <dd className="text-right text-stone-700">
+                      <dt className="text-ink-3">{window.name}</dt>
+                      <dd className="text-right text-ink-2">
                         {minutesToClock(window.startMinute)}–
                         {minutesToClock(window.endMinute)}
                         {crossesMidnight(window) && (
-                          <span className="text-stone-400"> +1d</span>
+                          <span className="text-ink-3"> +1d</span>
                         )}
-                        <span className="text-stone-400">
+                        <span className="text-ink-3">
                           {" · "}
                           {window.wholeBlockOnly
                             ? `${formatDurationMinutes(windowSpanMinutes(window))} block`

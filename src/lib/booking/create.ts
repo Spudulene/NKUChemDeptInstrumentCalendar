@@ -28,6 +28,8 @@ export type PreemptionTarget = {
   userId: string;
   userName: string;
   userEmail: string;
+  /** Research group the time was booked for, so the instructor knows whose work moves. */
+  groupName: string | null;
   type: BookingType;
   start: Date;
   end: Date;
@@ -281,7 +283,10 @@ export async function previewPreemption(args: {
       endsAt: { gt: start },
       ...(args.excludeBookingId ? { id: { not: args.excludeBookingId } } : {}),
     },
-    include: { user: { select: { name: true, email: true } } },
+    include: {
+      user: { select: { name: true, email: true } },
+      advisor: { select: { name: true } },
+    },
     orderBy: { startsAt: "asc" },
   });
 
@@ -292,6 +297,7 @@ export async function previewPreemption(args: {
     userId: b.userId,
     userName: b.user.name,
     userEmail: b.user.email,
+    groupName: b.advisor?.name ?? null,
     type: b.type,
     start: b.startsAt,
     end: b.endsAt,
@@ -345,6 +351,13 @@ export async function createPriorityBooking(args: {
   actor: { id: string; role: Role };
   /** Must be true when the preview reports targets. Forces an explicit decision. */
   confirmPreemption?: boolean;
+  /**
+   * The bookings the instructor was shown when they confirmed. A student can book into
+   * the range between preview and confirm; without this, that booking would be
+   * cancelled without anyone having seen it. Any target outside this list sends the
+   * instructor back to review instead.
+   */
+  confirmedTargetIds?: readonly string[];
   /**
    * Mail the displaced students as soon as the transaction commits. Off only for
    * tests and backfills, where the scheduled sweeper can pick them up instead.
@@ -417,6 +430,15 @@ export async function createPriorityBooking(args: {
     });
   }
 
+  const confirmed = args.confirmedTargetIds;
+  if (confirmed && preview.targets.some((t) => !confirmed.includes(t.id))) {
+    throw new BookingError({
+      code: "CONFIRMATION_REQUIRED",
+      message:
+        "Someone booked into that time while you were reviewing. Check the updated list and confirm again.",
+    });
+  }
+
   const targetIds = preview.targets.map((t) => t.id);
 
   const booking = await db.$transaction(async (tx) => {
@@ -443,6 +465,7 @@ export async function createPriorityBooking(args: {
         status: "CONFIRMED",
         startsAt: request.start,
         endsAt: request.end,
+        title: request.title?.trim() || null,
         description: request.description!,
         policySnapshot: policySnapshot(instrument, null),
       },

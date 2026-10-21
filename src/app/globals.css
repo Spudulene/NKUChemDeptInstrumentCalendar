@@ -1,26 +1,157 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens, from the "Instrument Calendar — NKU Prototypes" canvas.
+ *
+ * Raw values live in --ui-* so a theme switch only swaps variables; components use
+ * the Tailwind names mapped below (bg-surface, text-ink-2, border-line, ...), never
+ * hex codes. Dark applies when the viewer picked it, or picked nothing and the device
+ * prefers it — the layout sets data-theme from the `theme` cookie.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  color-scheme: light;
+  --ui-bg: #f3f3f1;
+  --ui-surface: #ffffff;
+  --ui-surface2: #f8f8f6;
+  --ui-sunken: #ebebe8;
+  --ui-text: #141414;
+  --ui-text2: #46463f;
+  --ui-text3: #5f5f59;
+  --ui-border: #deddd8;
+  --ui-border2: #c4c3bc;
+  --ui-gold: #ffc72c;
+  --ui-goldsoft: #fff4d1;
+  --ui-goldink: #7a5800;
+  --ui-ongold: #141414;
+  --ui-chrome: #0b0b0b;
+  --ui-chrome2: #232323;
+  --ui-chrometext: #ffffff;
+  --ui-chrometext2: #c4c4be;
+  --ui-ok: #166534;
+  --ui-oksoft: #e6f3ea;
+  --ui-warn: #8a4b00;
+  --ui-warnsoft: #fff1dc;
+  --ui-err: #b42318;
+  --ui-errsoft: #fdecea;
+  --ui-mine: #4338ca;
+  --ui-minesoft: #ecebfc;
+  --ui-onmine: #ffffff;
+  --ui-scrim: rgba(15, 15, 15, 0.55);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ui-bg: #0f0f10;
+    --ui-surface: #19191b;
+    --ui-surface2: #202023;
+    --ui-sunken: #141416;
+    --ui-text: #f2f2ef;
+    --ui-text2: #cacac5;
+    --ui-text3: #a5a5a0;
+    --ui-border: #2d2d31;
+    --ui-border2: #46464c;
+    --ui-gold: #ffc72c;
+    --ui-goldsoft: #2b2410;
+    --ui-goldink: #ffd25a;
+    --ui-ongold: #141414;
+    --ui-chrome: #000000;
+    --ui-chrome2: #1f1f1f;
+    --ui-chrometext: #ffffff;
+    --ui-chrometext2: #b8b8b2;
+    --ui-ok: #7ee2a8;
+    --ui-oksoft: #11281b;
+    --ui-warn: #ffc870;
+    --ui-warnsoft: #2e2210;
+    --ui-err: #ff8f85;
+    --ui-errsoft: #311613;
+    --ui-mine: #a5b4fc;
+    --ui-minesoft: #1d1e3a;
+    --ui-onmine: #111111;
+    --ui-scrim: rgba(0, 0, 0, 0.65);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ui-bg: #0f0f10;
+  --ui-surface: #19191b;
+  --ui-surface2: #202023;
+  --ui-sunken: #141416;
+  --ui-text: #f2f2ef;
+  --ui-text2: #cacac5;
+  --ui-text3: #a5a5a0;
+  --ui-border: #2d2d31;
+  --ui-border2: #46464c;
+  --ui-gold: #ffc72c;
+  --ui-goldsoft: #2b2410;
+  --ui-goldink: #ffd25a;
+  --ui-ongold: #141414;
+  --ui-chrome: #000000;
+  --ui-chrome2: #1f1f1f;
+  --ui-chrometext: #ffffff;
+  --ui-chrometext2: #b8b8b2;
+  --ui-ok: #7ee2a8;
+  --ui-oksoft: #11281b;
+  --ui-warn: #ffc870;
+  --ui-warnsoft: #2e2210;
+  --ui-err: #ff8f85;
+  --ui-errsoft: #311613;
+  --ui-mine: #a5b4fc;
+  --ui-minesoft: #1d1e3a;
+  --ui-onmine: #111111;
+  --ui-scrim: rgba(0, 0, 0, 0.65);
+}
+
+@theme inline {
+  --color-bg: var(--ui-bg);
+  --color-surface: var(--ui-surface);
+  --color-surface-2: var(--ui-surface2);
+  --color-sunken: var(--ui-sunken);
+  --color-ink: var(--ui-text);
+  --color-ink-2: var(--ui-text2);
+  --color-ink-3: var(--ui-text3);
+  --color-line: var(--ui-border);
+  --color-line-2: var(--ui-border2);
+  --color-gold: var(--ui-gold);
+  --color-gold-soft: var(--ui-goldsoft);
+  --color-gold-ink: var(--ui-goldink);
+  --color-on-gold: var(--ui-ongold);
+  --color-chrome: var(--ui-chrome);
+  --color-chrome-2: var(--ui-chrome2);
+  --color-chrome-ink: var(--ui-chrometext);
+  --color-chrome-ink-2: var(--ui-chrometext2);
+  --color-ok: var(--ui-ok);
+  --color-ok-soft: var(--ui-oksoft);
+  --color-warn: var(--ui-warn);
+  --color-warn-soft: var(--ui-warnsoft);
+  --color-err: var(--ui-err);
+  --color-err-soft: var(--ui-errsoft);
+  --color-mine: var(--ui-mine);
+  --color-mine-soft: var(--ui-minesoft);
+  --color-on-mine: var(--ui-onmine);
+  --color-scrim: var(--ui-scrim);
+  --font-sans: var(--font-figtree), "Avenir Next", Avenir, system-ui, sans-serif;
+}
+
+/* Calendar block fills from the canvas: class time is striped gold, maintenance grey. */
+@utility stripes-class {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--ui-goldsoft) 0 10px,
+    var(--ui-surface) 10px 20px
+  );
+}
+
+@utility stripes-maintenance {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--ui-sunken) 0 8px,
+    var(--ui-surface) 8px 16px
+  );
+}
+
+:focus-visible {
+  outline: 3px solid var(--ui-gold);
+  outline-offset: 2px;
 }

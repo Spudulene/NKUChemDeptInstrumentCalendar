@@ -87,8 +87,8 @@ export default async function InstrumentPage({
 
   const busy = bookings.map((b) => ({ start: b.startsAt, end: b.endsAt }));
 
-  // Only students book through this UI; instructors get the class-booking flow, which
-  // is not built yet.
+  // Only students book through this grid; instructors and admins reserve class time
+  // on /classes, which can displace student bookings.
   const canBook = user?.role === "STUDENT";
 
   const slots = canBook
@@ -135,7 +135,7 @@ export default async function InstrumentPage({
         booking.type === "MAINTENANCE"
           ? "Maintenance"
           : booking.type === "CLASS"
-            ? (booking.description ?? "Class")
+            ? (booking.title ?? booking.description ?? "Class")
             : mine
               ? "You"
               : booking.user.name,
@@ -177,7 +177,7 @@ export default async function InstrumentPage({
         <div>
           <Link
             href="/"
-            className="text-sm text-stone-500 underline-offset-4 hover:underline"
+            className="text-sm text-ink-3 underline-offset-4 hover:underline"
           >
             ← All instruments
           </Link>
@@ -190,26 +190,26 @@ export default async function InstrumentPage({
             {instrument.name}
           </h1>
           {instrument.location && (
-            <p className="text-stone-600">{instrument.location}</p>
+            <p className="text-ink-2">{instrument.location}</p>
           )}
         </div>
 
         <nav className="flex items-center gap-1 text-sm">
           <Link
             href={`/instruments/${slug}?week=${civilToISODate(addCivilDays(weekStart, -7))}`}
-            className="rounded-lg border border-stone-200 bg-white px-3 py-1.5 hover:border-stone-300"
+            className="rounded-lg border border-line bg-surface px-3 py-1.5 hover:border-line-2"
           >
             ←
           </Link>
           <Link
             href={`/instruments/${slug}`}
-            className="rounded-lg border border-stone-200 bg-white px-3 py-1.5 hover:border-stone-300"
+            className="rounded-lg border border-line bg-surface px-3 py-1.5 hover:border-line-2"
           >
             Today
           </Link>
           <Link
             href={`/instruments/${slug}?week=${civilToISODate(addCivilDays(weekStart, 7))}`}
-            className="rounded-lg border border-stone-200 bg-white px-3 py-1.5 hover:border-stone-300"
+            className="rounded-lg border border-line bg-surface px-3 py-1.5 hover:border-line-2"
           >
             →
           </Link>
@@ -217,11 +217,20 @@ export default async function InstrumentPage({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-stone-600">
+        <p className="text-sm text-ink-2">
           {canBook ? (
             <>Click any open time to book it.</>
           ) : user ? (
-            <>Viewing the schedule. Class bookings aren&apos;t built yet.</>
+            // Everyone signed in who isn't a student is an instructor or admin.
+            <>
+              Viewing the schedule.{" "}
+              <Link
+                href={`/classes?instrument=${slug}`}
+                className="font-semibold underline underline-offset-4"
+              >
+                Reserve {instrument.name} for a class
+              </Link>
+            </>
           ) : (
             <>
               <Link href="/dev-login" className="underline underline-offset-4">
@@ -231,12 +240,12 @@ export default async function InstrumentPage({
             </>
           )}
         </p>
-        <ul className="flex flex-wrap gap-3 text-xs text-stone-500">
-          <Legend className="bg-emerald-50 border-emerald-200">Open</Legend>
-          <Legend className="bg-stone-200 border-stone-300">Booked</Legend>
-          <Legend className="bg-indigo-100 border-indigo-300">Yours</Legend>
-          <Legend className="bg-amber-100 border-amber-300">Class</Legend>
-          <Legend className="bg-rose-100 border-rose-300">Maintenance</Legend>
+        <ul className="flex flex-wrap gap-3 text-xs text-ink-3">
+          <Legend className="bg-ok-soft border-line-2">Open</Legend>
+          <Legend className="bg-surface border-line-2">Booked</Legend>
+          <Legend className="bg-mine border-mine">Yours</Legend>
+          <Legend className="stripes-class border-gold">Class</Legend>
+          <Legend className="stripes-maintenance border-line-2">Maintenance</Legend>
         </ul>
       </div>
 
@@ -258,7 +267,7 @@ export default async function InstrumentPage({
       />
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <section className="rounded-xl border border-stone-200 bg-white p-5">
+        <section className="rounded-xl border border-line bg-surface p-5">
           <h2 className="text-sm font-medium">
             {myBookings.length > 0 ? "Your bookings this week" : "Bookable hours"}
           </h2>
@@ -268,14 +277,14 @@ export default async function InstrumentPage({
               {myBookings.map((booking) => (
                 <li
                   key={booking.id}
-                  className="flex items-start justify-between gap-4 border-b border-stone-100 pb-3 last:border-0 last:pb-0"
+                  className="flex items-start justify-between gap-4 border-b border-line pb-3 last:border-0 last:pb-0"
                 >
                   <div>
-                    <div className="text-stone-700">
+                    <div className="text-ink-2">
                       {formatRange(booking.startsAt, booking.endsAt)}
                     </div>
                     {booking.description && (
-                      <div className="text-xs text-stone-400">
+                      <div className="text-xs text-ink-3">
                         {booking.description}
                       </div>
                     )}
@@ -288,14 +297,14 @@ export default async function InstrumentPage({
             <dl className="mt-3 space-y-2 text-sm">
               {instrument.windows.map((window) => (
                 <div key={window.id} className="flex justify-between gap-4">
-                  <dt className="text-stone-600">{window.name}</dt>
-                  <dd className="text-right text-stone-500">
+                  <dt className="text-ink-2">{window.name}</dt>
+                  <dd className="text-right text-ink-3">
                     {minutesToClock(window.startMinute)}–
                     {minutesToClock(window.endMinute)}
                     {crossesMidnight(window) && (
-                      <span className="text-stone-400"> next day</span>
+                      <span className="text-ink-3"> next day</span>
                     )}
-                    <div className="text-xs text-stone-400">
+                    <div className="text-xs text-ink-3">
                       {window.wholeBlockOnly
                         ? `one ${formatDurationMinutes(windowSpanMinutes(window))} block`
                         : `${formatDurationMinutes(window.minDurationMinutes)}–${formatDurationMinutes(window.maxDurationMinutes)}`}
@@ -307,10 +316,10 @@ export default async function InstrumentPage({
           )}
         </section>
 
-        <section className="rounded-xl border border-stone-200 bg-white p-5">
+        <section className="rounded-xl border border-line bg-surface p-5">
           <h2 className="text-sm font-medium">Next available</h2>
           {openings.length === 0 ? (
-            <p className="mt-3 text-sm text-stone-500">
+            <p className="mt-3 text-sm text-ink-3">
               Nothing open in the next {instrument.bookingHorizonDays} days.
             </p>
           ) : (
@@ -320,10 +329,10 @@ export default async function InstrumentPage({
                   key={opening.start.toISOString()}
                   className="flex justify-between gap-4"
                 >
-                  <span className="text-stone-700">
+                  <span className="text-ink-2">
                     {formatRange(opening.start, opening.end)}
                   </span>
-                  <span className="shrink-0 text-xs text-stone-400">
+                  <span className="shrink-0 text-xs text-ink-3">
                     {opening.windowName}
                   </span>
                 </li>

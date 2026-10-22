@@ -6,9 +6,12 @@
  * Raw values live in --ui-* so a theme switch only swaps variables; components use
  * the Tailwind names mapped below (bg-surface, text-ink-2, border-line, ...), never
  * hex codes. Dark applies when the viewer picked it, or picked nothing and the device
- * prefers it — the layout sets data-theme from the `theme` cookie.
+ * prefers it — the layout sets data-theme from the `theme` cookie. Any element can
+ * pin its subtree with its own data-theme, which is how /embed stays light inside the
+ * department's light page even on a dark-mode laptop.
  */
-:root {
+:root,
+[data-theme="light"] {
   color-scheme: light;
   --ui-bg: #f3f3f1;
   --ui-surface: #ffffff;
@@ -72,7 +75,8 @@
   }
 }
 
-:root[data-theme="dark"] {
+:root[data-theme="dark"],
+[data-theme="dark"] {
   color-scheme: dark;
   --ui-bg: #0f0f10;
   --ui-surface: #19191b;

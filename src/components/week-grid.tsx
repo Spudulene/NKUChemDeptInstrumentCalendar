@@ -10,6 +10,12 @@ export type GridBlock = {
   end: Date;
   label: string;
   sublabel?: string;
+  /**
+   * The time range in words, formatted on the server. Blocks are placed by position,
+   * so without this their times exist only visually — useless to a screen reader on a
+   * page whose whole point is "when is it taken".
+   */
+  when: string;
   tone: "student" | "mine" | "class" | "maintenance";
 };
 
@@ -225,10 +231,22 @@ function DayColumn({
               pos.clippedStart ? "rounded-t-none border-t-0" : ""
             } ${pos.clippedEnd ? "rounded-b-none border-b-0" : ""}`}
             style={{ top: `${pos.top}%`, height: `${pos.height}%` }}
-            title={block.label}
+            title={`${block.label}, ${block.when}`}
           >
-            {!pos.clippedStart && <div className="truncate font-medium">{block.label}</div>}
-            {block.sublabel && <div className="truncate opacity-75">{block.sublabel}</div>}
+            <span className="sr-only">
+              {pos.clippedStart ? "Continued: " : ""}
+              {block.label}, {block.when}
+            </span>
+            <div aria-hidden="true">
+              {/* An overnight run's morning half gets a quieter label, so it doesn't
+                  read as an unexplained box. */}
+              <div className={`truncate ${pos.clippedStart ? "opacity-70" : "font-medium"}`}>
+                {pos.clippedStart ? `${block.label} (cont.)` : block.label}
+              </div>
+              {block.sublabel && !pos.clippedStart && (
+                <div className="truncate opacity-75">{block.sublabel}</div>
+              )}
+            </div>
           </div>
         );
       })}

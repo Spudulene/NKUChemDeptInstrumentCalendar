@@ -10,12 +10,12 @@ import {
   instantToMinutes,
   minutesToClock,
 } from "@/lib/time";
-import { resolveClassTimes } from "@/app/classes/times";
+import { resolveClassTimes } from "@/app/(site)/classes/times";
 import {
   previewKey,
   type ClassPreviewResponse,
   type ClassPreviewRow,
-} from "@/app/classes/types";
+} from "@/app/(site)/classes/types";
 
 export const dynamic = "force-dynamic";
 

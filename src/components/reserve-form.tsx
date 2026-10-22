@@ -5,12 +5,12 @@ import { useActionState, useEffect, useState } from "react";
 import {
   createClassReservationAction,
   type ReserveState,
-} from "@/app/classes/actions";
+} from "@/app/(site)/classes/actions";
 import {
   previewKey,
   type ClassPreviewResponse,
   type ClassPreviewRow,
-} from "@/app/classes/types";
+} from "@/app/(site)/classes/types";
 import { preemptionExplanation } from "@/lib/notice-copy";
 
 type InstrumentOption = {

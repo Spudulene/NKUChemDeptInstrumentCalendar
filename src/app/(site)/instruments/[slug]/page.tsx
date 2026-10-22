@@ -7,7 +7,6 @@ import {
   addCivilDays,
   civilToInstant,
   civilToISODate,
-  compareCivil,
   formatDurationMinutes,
   formatRange,
   minutesToClock,
@@ -17,6 +16,7 @@ import {
 import { crossesMidnight, expandWindows, windowSpanMinutes } from "@/lib/booking/windows";
 import { computeBookableSlots } from "@/lib/booking/slots";
 import { findOpenings } from "@/lib/booking/availability";
+import { campusDays, sundayOf } from "@/lib/week";
 import { WeekGrid, type GridBlock, type GridDay } from "@/components/week-grid";
 import { CancelBookingButton } from "@/components/cancel-booking-button";
 
@@ -44,11 +44,7 @@ export default async function InstrumentPage({
   const requested = typeof week === "string" ? parseISODate(week) : null;
   const anchor = requested ?? today;
 
-  // Columns run Sunday to Saturday, matching how quota weeks are counted.
-  const weekdayIndex = new Date(
-    Date.UTC(anchor.y, anchor.m - 1, anchor.d),
-  ).getUTCDay();
-  const weekStart = addCivilDays(anchor, -weekdayIndex);
+  const weekStart = sundayOf(anchor);
   const weekEnd = addCivilDays(weekStart, 7);
 
   const rangeStart = civilToInstant(weekStart, 0);
@@ -108,20 +104,7 @@ export default async function InstrumentPage({
       })
     : [];
 
-  const days: GridDay[] = Array.from({ length: 7 }, (_, i) => {
-    const date = addCivilDays(weekStart, i);
-    return {
-      key: civilToISODate(date),
-      weekday: new Date(Date.UTC(date.y, date.m - 1, date.d)).toLocaleDateString(
-        "en-US",
-        { weekday: "short", timeZone: "UTC" },
-      ),
-      dayOfMonth: date.d,
-      isToday: compareCivil(date, today) === 0,
-      start: civilToInstant(date, 0),
-      end: civilToInstant(addCivilDays(date, 1), 0),
-    };
-  });
+  const days: GridDay[] = campusDays(weekStart, 7, today);
 
   const blocks: GridBlock[] = bookings.map((booking) => {
     const mine = user?.id === booking.user.id;
@@ -129,8 +112,10 @@ export default async function InstrumentPage({
       id: booking.id,
       start: booking.startsAt,
       end: booking.endsAt,
+      when: formatRange(booking.startsAt, booking.endsAt),
       // Class and maintenance announce themselves; student bookings show only a name,
-      // since what someone is running is their business.
+      // since what someone is running is their business. Only signed-in members of the
+      // department get the name: this page is reachable by anyone with the URL.
       label:
         booking.type === "MAINTENANCE"
           ? "Maintenance"
@@ -138,7 +123,9 @@ export default async function InstrumentPage({
             ? (booking.title ?? booking.description ?? "Class")
             : mine
               ? "You"
-              : booking.user.name,
+              : user
+                ? booking.user.name
+                : "Booked",
       sublabel:
         booking.type === "MAINTENANCE"
           ? (booking.description ?? undefined)
@@ -341,6 +328,34 @@ export default async function InstrumentPage({
           )}
         </section>
       </div>
+
+      {user?.role === "ADMIN" && (
+        <details className="rounded-xl border border-line bg-surface p-5">
+          <summary className="cursor-pointer text-sm font-medium">
+            Show this calendar on the department&apos;s website
+          </summary>
+          <p className="mt-3 text-sm text-ink-2">
+            Paste this where the Google Calendar embed used to be. It shows booked and open
+            time without names, and its button opens this page to book. Only nku.edu pages
+            can display it.{" "}
+            <a
+              href={`/embed/${slug}`}
+              target="_blank"
+              rel="noopener"
+              className="font-semibold underline underline-offset-4"
+            >
+              Preview
+            </a>
+          </p>
+          <pre className="mt-3 overflow-x-auto rounded-lg bg-sunken p-3 text-xs text-ink">
+            <code>{`<iframe src="${env.APP_URL}/embed/${slug}" title="${instrument.name} availability" width="100%" height="800" style="border:0" loading="lazy"></iframe>`}</code>
+          </pre>
+          <p className="mt-2 text-xs text-ink-3">
+            Add <code>?view=month</code> to the address for a month view like Google
+            Calendar&apos;s.
+          </p>
+        </details>
+      )}
     </div>
   );
 }

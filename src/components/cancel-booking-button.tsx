@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import {
   cancelBookingAction,
   type ActionState,
-} from "@/app/instruments/[slug]/actions";
+} from "@/app/(site)/instruments/[slug]/actions";
 
 const initialState: ActionState = { error: null };
 

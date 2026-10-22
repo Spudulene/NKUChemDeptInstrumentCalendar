@@ -278,6 +278,23 @@ server action encrypted by one replica cannot be decrypted by another and bookin
 submissions fail with "Failed to find Server Action". Shared caching and `deploymentId`
 also become relevant.
 
+### Showing availability on the department's website
+
+The department's Instrument Schedules page used to embed Google Calendars. Each
+instrument now has a public, read-only replacement at `/embed/<slug>`. Admins can copy
+a ready-made `<iframe>` snippet from the bottom of any instrument page.
+
+- Options: `?view=month` for a Google-style month grid (the default is a week grid
+  with bookable hours shaded), and `?theme=dark` or `?theme=auto`. The default is light,
+  to match the host page.
+- It shows *that* time is taken, never by whom. Student bookings read "Booked"; classes
+  show their title. The query never selects the booking's owner.
+- It needs no sign-in. Browsers withhold this app's cookies inside a frame on another
+  site, so "Book this instrument" opens the app in a new tab.
+- Only `/embed/*` may be framed, and only by `nku.edu` hosts. Every other page sends
+  `frame-ancestors 'none'`. The allow-list is in `next.config.ts` and is applied at
+  **build** time, so a new host means a rebuild, not an environment variable.
+
 ---
 
 ## Still to build

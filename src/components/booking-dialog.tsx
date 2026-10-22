@@ -4,7 +4,7 @@ import { useActionState, useEffect, useRef } from "react";
 import {
   createBookingAction,
   type ActionState,
-} from "@/app/instruments/[slug]/actions";
+} from "@/app/(site)/instruments/[slug]/actions";
 import type { BookableSlot } from "@/lib/booking/slots";
 
 export type AdvisorOption = { id: string; name: string };

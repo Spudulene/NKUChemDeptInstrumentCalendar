@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { BookingError, createPriorityBooking } from "@/lib/booking/create";
-import { resolveClassTimes } from "@/app/classes/times";
+import { resolveClassTimes } from "@/app/(site)/classes/times";
 
 export type ReserveState = {
   error: string | null;

@@ -16,6 +16,8 @@ import {
 } from "@/lib/time";
 import { campusDays, sundayOf, type CampusDay } from "@/lib/week";
 import { WeekGrid, type GridBlock } from "@/components/week-grid";
+import { EmbedAgenda } from "@/components/embed-agenda";
+import { buildAgenda } from "./agenda";
 
 export const metadata: Metadata = {
   title: "Instrument availability — NKU Chemistry",
@@ -101,6 +103,32 @@ export default async function EmbedPage({
     label: label(b),
     tone: b.type === "MAINTENANCE" ? "maintenance" : b.type === "CLASS" ? "class" : "student",
   }));
+
+  // A day early, so an overnight window opening Saturday still shades Sunday morning.
+  const occurrences = expandWindows(instrument.windows, addCivilDays(gridStart, -1), gridEnd);
+
+  // Phones get a day-at-a-time list instead of the seven-column grid. Both are
+  // rendered and CSS picks one by the frame's width.
+  const agenda =
+    view === "week"
+      ? buildAgenda({
+          days,
+          occurrences,
+          bookings: blocks.map((b) => ({
+            id: b.id,
+            start: b.start,
+            end: b.end,
+            label: b.label,
+            tone: b.tone === "mine" ? "student" : b.tone,
+          })),
+          now: new Date(),
+        })
+      : [];
+  // The requested date (e.g. tapped in month view) or today, else the first day with room.
+  const initialDay =
+    agenda.find((d) => d.key === civilToISODate(anchor)) ??
+    agenda.find((d) => d.hasOpen) ??
+    agenda[0];
 
   const href = (changes: { date?: CivilDate; view?: View }) => {
     const next = new URLSearchParams();
@@ -198,27 +226,33 @@ export default async function EmbedPage({
 
       <div className="mt-3">
         {view === "week" ? (
-          <WeekGrid
-            slug={slug}
-            days={days}
-            bands={expandWindows(instrument.windows, addCivilDays(gridStart, -1), gridEnd).map(
-              (o) => ({ id: o.window.id, start: o.start, end: o.end }),
-            )}
-            blocks={blocks}
-            slots={[]}
-            advisors={[]}
-            defaultAdvisorId={null}
-            advisorRequired={false}
-            timeZone={env.CAMPUS_TIMEZONE}
-            canBook={false}
-          />
+          <>
+            <div className="sm:hidden">
+              <EmbedAgenda days={agenda} initialKey={initialDay.key} slug={slug} />
+            </div>
+            <div className="hidden sm:block">
+              <WeekGrid
+                slug={slug}
+                days={days}
+                bands={occurrences.map((o) => ({ id: o.window.id, start: o.start, end: o.end }))}
+                blocks={blocks}
+                slots={[]}
+                advisors={[]}
+                defaultAdvisorId={null}
+                advisorRequired={false}
+                timeZone={env.CAMPUS_TIMEZONE}
+                canBook={false}
+              />
+            </div>
+          </>
         ) : (
           <MonthGrid days={days} month={anchor.m} blocks={blocks} weekHref={(d) => href({ view: "week", date: d })} />
         )}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-ink-3">
-        <ul className="flex flex-wrap gap-3">
+        {/* The phone list labels its own entries; these swatches describe the grid. */}
+        <ul className={`flex-wrap gap-3 ${view === "week" ? "hidden sm:flex" : "flex"}`}>
           {view === "week" && <Swatch className="bg-ok-soft border-line-2">Bookable hours</Swatch>}
           <Swatch className="bg-surface border-line-2">Booked</Swatch>
           <Swatch className="stripes-class border-gold">Class</Swatch>
@@ -243,6 +277,12 @@ function weekHeading(first: CampusDay, last: CampusDay): string {
   )}, ${last.date.y}`;
 }
 
+const DOT: Record<"student" | "class" | "maintenance", string> = {
+  student: "border border-ink-3 bg-surface",
+  class: "bg-gold",
+  maintenance: "stripes-maintenance border border-line-2",
+};
+
 const TONE: Record<GridBlock["tone"], string> = {
   student: "text-ink-2",
   mine: "text-ink-2",
@@ -253,6 +293,9 @@ const TONE: Record<GridBlock["tone"], string> = {
 /**
  * The Google Calendar month layout people are used to: each day lists what is taken.
  * A booking spanning midnight is listed on the day it starts.
+ *
+ * On a phone there's no room for entries, so each day shows a marker per kind of
+ * booking instead, and the date links to that day in the week view's day list.
  */
 function MonthGrid({
   days,
@@ -267,7 +310,7 @@ function MonthGrid({
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-line bg-surface">
-      <div className="grid min-w-[640px] grid-cols-7">
+      <div className="grid grid-cols-7 sm:min-w-[640px]">
         {days.slice(0, 7).map((d) => (
           <div key={d.weekday} className="border-b border-line px-2 py-1.5 text-center text-xs font-semibold text-ink-3 uppercase">
             {d.weekday}
@@ -276,28 +319,44 @@ function MonthGrid({
         {days.map((day) => {
           const items = blocks.filter((b) => b.start >= day.start && b.start < day.end);
           const outside = day.date.m !== month;
+          const tones = (["student", "class", "maintenance"] as const).filter((t) =>
+            items.some((b) => b.tone === t),
+          );
+          const summary =
+            items.length === 0
+              ? "nothing booked"
+              : `${items.length} booking${items.length === 1 ? "" : "s"}`;
           return (
             <div
               key={day.key}
-              className={`min-h-24 border-b border-l border-line p-1.5 [&:nth-child(7n+1)]:border-l-0 ${
+              className={`min-h-14 border-b border-l border-line p-1 sm:min-h-24 sm:p-1.5 [&:nth-child(7n+1)]:border-l-0 ${
                 outside ? "bg-surface-2" : ""
               }`}
             >
               <div className="flex justify-center">
-                <span
-                  className={`flex size-7 items-center justify-center rounded-full text-sm ${
+                <Link
+                  href={weekHref(day.date)}
+                  aria-label={`${day.weekday} ${day.dayOfMonth}${day.isToday ? ", today" : ""}: ${summary}`}
+                  className={`flex size-9 items-center justify-center rounded-full text-sm no-underline sm:size-7 ${
                     day.isToday
                       ? "bg-gold font-bold text-on-gold"
                       : outside
-                        ? "text-ink-3"
-                        : "font-medium text-ink"
+                        ? "text-ink-3 hover:bg-sunken"
+                        : "font-medium text-ink hover:bg-sunken"
                   }`}
                 >
                   {day.dayOfMonth}
-                </span>
+                </Link>
               </div>
+              {tones.length > 0 && (
+                <div aria-hidden="true" className="mt-1 flex justify-center gap-1 sm:hidden">
+                  {tones.map((t) => (
+                    <span key={t} className={`size-2 rounded-full ${DOT[t]}`} />
+                  ))}
+                </div>
+              )}
               {items.length > 0 && (
-                <ul className="mt-1 space-y-0.5 text-xs leading-snug">
+                <ul className="mt-1 hidden space-y-0.5 text-xs leading-snug sm:block">
                   {items.slice(0, MAX_PER_DAY).map((b) => (
                     <li key={b.id} className={`truncate ${TONE[b.tone]}`} title={`${formatTimeOnly(b.start)} ${b.label}`}>
                       <span className="tabular-nums">{formatTimeOnly(b.start)}</span> {b.label}

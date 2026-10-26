@@ -13,7 +13,7 @@ like it belongs.
 | Reserve for a class (instructor) | `src/app/(site)/classes/page.tsx`          |
 | Shared header                    | `src/components/app-header.tsx`            |
 | Phone · Book time                | the booking dialog, as a bottom sheet under 640px |
-| Phone · Day schedule             | the embed's phone layout (`src/components/embed-agenda.tsx`); not yet on the app's own instrument page |
+| Phone · Day schedule             | `src/components/day-agenda.tsx`, under 640px on the instrument page and the embed |
 | Phone · Instruments              | not built yet                              |
 | Instrument settings (admin)      | not built yet                              |
 

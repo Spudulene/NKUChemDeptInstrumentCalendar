@@ -40,6 +40,7 @@
   --ui-minesoft: #ecebfc;
   --ui-onmine: #ffffff;
   --ui-scrim: rgba(15, 15, 15, 0.55);
+  --ui-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 8px 24px rgba(0, 0, 0, 0.06);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -72,6 +73,7 @@
     --ui-minesoft: #1d1e3a;
     --ui-onmine: #111111;
     --ui-scrim: rgba(0, 0, 0, 0.65);
+    --ui-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 30px rgba(0, 0, 0, 0.45);
   }
 }
 
@@ -105,6 +107,7 @@
   --ui-minesoft: #1d1e3a;
   --ui-onmine: #111111;
   --ui-scrim: rgba(0, 0, 0, 0.65);
+  --ui-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
 @theme inline {
@@ -153,6 +156,24 @@
     var(--ui-sunken) 0 8px,
     var(--ui-surface) 8px 16px
   );
+}
+
+/*
+ * An instrument's own colour (admin-set data, not a token), passed in as --inst and
+ * blended with the theme so it stays legible in both modes: a light tint over the
+ * surface for backgrounds, and the colour pulled toward the text colour for ink —
+ * darker on light, lighter on dark.
+ */
+@utility inst-soft {
+  background-color: color-mix(in srgb, var(--inst) 14%, var(--ui-surface));
+}
+
+@utility inst-ink {
+  color: color-mix(in srgb, var(--inst) 72%, var(--ui-text));
+}
+
+@utility inst-dot {
+  background-color: var(--inst);
 }
 
 :focus-visible {

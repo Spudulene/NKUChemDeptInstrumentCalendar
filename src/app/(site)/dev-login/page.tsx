@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { Button, Card, Field, Notice, fieldClass } from "@/components/ui";
 import { signInAction } from "./actions";
 
 export const metadata = { title: "Sign in — Instrument Calendar" };
@@ -20,74 +21,55 @@ export default async function DevLoginPage({
   });
 
   return (
-    <div className="mx-auto max-w-md space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
-        <p className="mt-1 text-sm text-ink-2">
-          Stand-in for university SSO. Any email works — unknown addresses are created
-          as students.
-        </p>
-      </div>
+    <div className="mx-auto max-w-md pt-2">
+      <h1 className="text-[34px] leading-tight font-extrabold tracking-[-0.02em]">Sign in</h1>
+      <p className="mt-2 text-[17px] leading-normal text-ink-2">
+        Stand-in for university SSO. Any email works — unknown addresses are created as students.
+      </p>
 
       {typeof error === "string" && (
-        <p className="rounded-lg border border-err/30 bg-err-soft px-4 py-2 text-sm text-err">
+        <Notice tone="err" alert className="mt-6">
           {error}
-        </p>
+        </Notice>
       )}
 
-      <form
-        action={signInAction}
-        className="space-y-4 rounded-xl border border-line bg-surface p-6"
-      >
-        <div className="space-y-1.5">
-          <label htmlFor="email" className="block text-sm font-medium">
-            Email
-          </label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            required
-            autoFocus
-            placeholder="student@nku.edu"
-            className="w-full rounded-lg border border-line-2 px-3 py-2 text-sm outline-none focus:border-ink-3"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <label htmlFor="name" className="block text-sm font-medium">
-            Name <span className="font-normal text-ink-3">(optional)</span>
-          </label>
-          <input
-            id="name"
-            name="name"
-            type="text"
-            className="w-full rounded-lg border border-line-2 px-3 py-2 text-sm outline-none focus:border-ink-3"
-          />
-        </div>
-
-        <button
-          type="submit"
-          className="w-full rounded-lg bg-gold px-4 py-2 text-sm font-medium text-on-gold transition hover:brightness-95"
-        >
-          Sign in
-        </button>
-      </form>
+      <Card as="section" className="mt-6 p-6">
+        <form action={signInAction} className="flex flex-col gap-4">
+          <Field label="Email">
+            <input
+              name="email"
+              type="email"
+              required
+              autoFocus
+              placeholder="student@nku.edu"
+              className={fieldClass}
+            />
+          </Field>
+          <Field label="Name" hint="optional">
+            <input name="name" type="text" className={fieldClass} />
+          </Field>
+          <Button type="submit" size="lg" className="mt-1 w-full">
+            Sign in
+          </Button>
+        </form>
+      </Card>
 
       {seeded.length > 0 && (
-        <div className="rounded-xl border border-line bg-surface p-5">
-          <h2 className="text-sm font-medium">Seeded accounts</h2>
-          <ul className="mt-3 space-y-1.5 text-sm">
+        <Card as="section" aria-labelledby="seeded-h" className="mt-4 p-5">
+          <h2 id="seeded-h" className="text-base font-bold">
+            Seeded accounts
+          </h2>
+          <ul className="mt-3 flex flex-col gap-2 text-sm">
             {seeded.map((user) => (
               <li key={user.email} className="flex justify-between gap-4">
                 <span className="font-mono text-xs text-ink-2">{user.email}</span>
-                <span className="text-xs uppercase tracking-wide text-ink-3">
+                <span className="text-xs font-bold tracking-[0.05em] text-ink-3 uppercase">
                   {user.role.toLowerCase()}
                 </span>
               </li>
             ))}
           </ul>
-        </div>
+        </Card>
       )}
     </div>
   );

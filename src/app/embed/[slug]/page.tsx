@@ -8,14 +8,15 @@ import {
   addCivilDays,
   civilToISODate,
   civilToInstant,
-  formatRange,
   formatTimeOnly,
   parseISODate,
   todayCivil,
   type CivilDate,
 } from "@/lib/time";
-import { campusDays, sundayOf, type CampusDay } from "@/lib/week";
-import { WeekGrid, type GridBlock } from "@/components/week-grid";
+import { campusDays, sundayOf, weekRangeLabel, type CampusDay } from "@/lib/week";
+import { WeekGrid } from "@/components/week-grid";
+import { buttonClass } from "@/components/ui";
+import { buildScheduleView, type ScheduleBooking } from "@/lib/schedule-view";
 import { EmbedAgenda } from "@/components/embed-agenda";
 import { buildAgenda } from "./agenda";
 
@@ -95,14 +96,19 @@ export default async function EmbedPage({
   const label = (b: (typeof bookings)[number]) =>
     b.type === "MAINTENANCE" ? "Maintenance" : b.type === "CLASS" ? (b.title ?? "Class") : "Booked";
 
-  const blocks: GridBlock[] = bookings.map((b) => ({
+  const blocks: ScheduleBooking[] = bookings.map((b) => ({
     id: b.id,
     start: b.startsAt,
     end: b.endsAt,
-    when: formatRange(b.startsAt, b.endsAt),
     label: label(b),
     tone: b.type === "MAINTENANCE" ? "maintenance" : b.type === "CLASS" ? "class" : "student",
   }));
+
+  // The same grid the app uses, minus anything clickable.
+  const weekView =
+    view === "week"
+      ? buildScheduleView({ weekStart: gridStart, today, windows: instrument.windows, bookings: blocks, slots: [] })
+      : null;
 
   // A day early, so an overnight window opening Saturday still shades Sunday morning.
   const occurrences = expandWindows(instrument.windows, addCivilDays(gridStart, -1), gridEnd);
@@ -151,7 +157,7 @@ export default async function EmbedPage({
 
   const heading =
     view === "week"
-      ? weekHeading(days[0], days[6])
+      ? weekRangeLabel(gridStart)
       : new Date(Date.UTC(anchor.y, anchor.m - 1, 1)).toLocaleDateString("en-US", {
           month: "long",
           year: "numeric",
@@ -163,8 +169,7 @@ export default async function EmbedPage({
       .formatToParts(new Date())
       .find((p) => p.type === "timeZoneName")?.value ?? env.CAMPUS_TIMEZONE;
 
-  const control =
-    "inline-flex min-h-10 items-center justify-center rounded-[10px] border border-line-2 bg-surface px-3 text-sm font-semibold text-ink no-underline hover:bg-surface-2";
+  const control = buttonClass({ variant: "secondary" });
 
   return (
     <div
@@ -188,7 +193,7 @@ export default async function EmbedPage({
           href={`/instruments/${slug}`}
           target="_blank"
           rel="noopener"
-          className="inline-flex min-h-11 items-center rounded-[10px] bg-gold px-4 text-[15px] font-bold text-on-gold no-underline"
+          className={buttonClass()}
         >
           Book this instrument
           <span className="sr-only"> (opens in a new tab)</span>
@@ -231,18 +236,7 @@ export default async function EmbedPage({
               <EmbedAgenda days={agenda} initialKey={initialDay.key} slug={slug} />
             </div>
             <div className="hidden sm:block">
-              <WeekGrid
-                slug={slug}
-                days={days}
-                bands={occurrences.map((o) => ({ id: o.window.id, start: o.start, end: o.end }))}
-                blocks={blocks}
-                slots={[]}
-                advisors={[]}
-                defaultAdvisorId={null}
-                advisorRequired={false}
-                timeZone={env.CAMPUS_TIMEZONE}
-                canBook={false}
-              />
+              <WeekGrid view={weekView!} />
             </div>
           </>
         ) : (
@@ -253,10 +247,10 @@ export default async function EmbedPage({
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-ink-3">
         {/* The phone list labels its own entries; these swatches describe the grid. */}
         <ul className={`flex-wrap gap-3 ${view === "week" ? "hidden sm:flex" : "flex"}`}>
-          {view === "week" && <Swatch className="bg-ok-soft border-line-2">Bookable hours</Swatch>}
           <Swatch className="bg-surface border-line-2">Booked</Swatch>
           <Swatch className="stripes-class border-gold">Class</Swatch>
           <Swatch className="stripes-maintenance border-line-2">Maintenance</Swatch>
+          {view === "week" && <Swatch className="bg-sunken border-line">Not bookable</Swatch>}
         </ul>
         <p>Times shown in {zoneName} · NKU Chemistry Instrument Calendar</p>
       </div>
@@ -264,18 +258,6 @@ export default async function EmbedPage({
   );
 }
 
-function weekHeading(first: CampusDay, last: CampusDay): string {
-  const fmt = (d: CampusDay, opts: Intl.DateTimeFormatOptions) =>
-    new Date(Date.UTC(d.date.y, d.date.m - 1, d.date.d)).toLocaleDateString("en-US", {
-      ...opts,
-      timeZone: "UTC",
-    });
-  const sameMonth = first.date.m === last.date.m;
-  return `${fmt(first, { month: "short", day: "numeric" })} – ${fmt(
-    last,
-    sameMonth ? { day: "numeric" } : { month: "short", day: "numeric" },
-  )}, ${last.date.y}`;
-}
 
 const DOT: Record<"student" | "class" | "maintenance", string> = {
   student: "border border-ink-3 bg-surface",
@@ -283,7 +265,7 @@ const DOT: Record<"student" | "class" | "maintenance", string> = {
   maintenance: "stripes-maintenance border border-line-2",
 };
 
-const TONE: Record<GridBlock["tone"], string> = {
+const TONE: Record<ScheduleBooking["tone"], string> = {
   student: "text-ink-2",
   mine: "text-ink-2",
   class: "font-semibold text-gold-ink",
@@ -305,7 +287,7 @@ function MonthGrid({
 }: {
   days: CampusDay[];
   month: number;
-  blocks: GridBlock[];
+  blocks: ScheduleBooking[];
   weekHref: (date: CivilDate) => string;
 }) {
   return (

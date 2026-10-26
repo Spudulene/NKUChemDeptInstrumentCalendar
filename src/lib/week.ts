@@ -42,3 +42,15 @@ export function campusDays(from: CivilDate, count: number, today: CivilDate): Ca
     };
   });
 }
+
+/** "Oct 25 – 31, 2026", or "Oct 29 – Nov 4, 2026" across a month boundary. */
+export function weekRangeLabel(weekStart: CivilDate): string {
+  const last = addCivilDays(weekStart, 6);
+  const fmt = (d: CivilDate, opts: Intl.DateTimeFormatOptions) =>
+    new Date(Date.UTC(d.y, d.m - 1, d.d)).toLocaleDateString("en-US", { ...opts, timeZone: "UTC" });
+  const sameMonth = weekStart.m === last.m;
+  return `${fmt(weekStart, { month: "short", day: "numeric" })} – ${fmt(
+    last,
+    sameMonth ? { day: "numeric" } : { month: "short", day: "numeric" },
+  )}, ${last.y}`;
+}

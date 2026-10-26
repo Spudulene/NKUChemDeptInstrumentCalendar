@@ -1,3 +1,4 @@
+import type { BookableSlot } from "@/lib/booking/slots";
 import type { WindowOccurrence } from "@/lib/booking/windows";
 import { subtractIntervals } from "@/lib/booking/windows";
 import {
@@ -12,13 +13,15 @@ import type { CampusDay } from "@/lib/week";
 
 const MINUTE_MS = 60_000;
 
-type Tone = "student" | "class" | "maintenance";
+type Tone = "student" | "mine" | "class" | "maintenance";
 
 export type AgendaBooking = {
   id: string;
   start: Date;
   end: Date;
   label: string;
+  /** A class's instructor, or what maintenance is for. */
+  sublabel?: string;
   tone: Tone;
 };
 
@@ -33,8 +36,15 @@ type Clock = {
 };
 
 export type AgendaItem =
-  | ({ kind: "open"; key: string; free: string; windowName: string } & Clock)
-  | ({ kind: "taken"; key: string; label: string; tone: Tone } & Clock);
+  | ({
+      kind: "open";
+      key: string;
+      free: string;
+      windowName: string;
+      /** Every start the viewer could book in this gap; empty where no one can book here. */
+      starts: BookableSlot[];
+    } & Clock)
+  | ({ kind: "taken"; key: string; label: string; sublabel?: string; tone: Tone } & Clock);
 
 export type AgendaDay = {
   key: string;
@@ -46,6 +56,8 @@ export type AgendaDay = {
   /** The windows that open on this day, e.g. "Daytime 08:00–17:00". */
   windows: string[];
   hasOpen: boolean;
+  /** The viewer has a booking starting this day. */
+  hasMine: boolean;
   items: AgendaItem[];
 };
 
@@ -60,14 +72,18 @@ export type AgendaDay = {
  * "Open" means bookable, not merely empty: a gap shorter than the window's minimum
  * length, part of a whole-block-only window, or time already past is left out, so
  * the list never advertises a slot the booking form would refuse.
+ *
+ * `slots` are the viewer's own bookable starts (lead time, horizon and changeover
+ * applied); each open gap carries the ones that fall inside it, for the booking dialog.
  */
 export function buildAgenda(args: {
   days: CampusDay[];
   occurrences: WindowOccurrence[];
   bookings: AgendaBooking[];
+  slots?: BookableSlot[];
   now: Date;
 }): AgendaDay[] {
-  const { days, occurrences, bookings, now } = args;
+  const { days, occurrences, bookings, slots = [], now } = args;
   const busy = bookings.map((b) => ({ start: b.start, end: b.end }));
 
   return days.map((day) => {
@@ -107,6 +123,9 @@ export function buildAgenda(args: {
         key: `open-${g.start.getTime()}`,
         free: `${formatDurationMinutes(Math.round((g.end.getTime() - g.start.getTime()) / MINUTE_MS))} free`,
         windowName: o.window.name,
+        starts: slots.filter(
+          (s) => s.windowId === o.window.id && s.start >= g.start && s.start < g.end,
+        ),
         ...clock(g.start, g.end),
       }));
     });
@@ -117,6 +136,7 @@ export function buildAgenda(args: {
         kind: "taken" as const,
         key: b.id,
         label: b.label,
+        sublabel: b.sublabel,
         tone: b.tone,
         ...clock(b.start, b.end),
       }));
@@ -139,6 +159,7 @@ export function buildAgenda(args: {
         return `${o.window.name} ${c.start}–${c.end}${c.endsNextDay ? " next day" : ""}`;
       }),
       hasOpen: open.length > 0,
+      hasMine: taken.some((t) => t.kind === "taken" && t.tone === "mine"),
       items: [...open, ...taken].sort((a, b) => a.at - b.at),
     };
   });

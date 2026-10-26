@@ -4,13 +4,19 @@ import { createContext, useCallback, useContext, useState, type ReactNode } from
 import type { BookableSlot } from "@/lib/booking/slots";
 import { BookingDialog, type AdvisorOption, type DialogInstrument } from "@/components/booking-dialog";
 
-type BookingContextValue = { select: (slot: BookableSlot) => void };
+type BookingContextValue = {
+  /**
+   * Opens the dialog on `slot`. Pass `starts` (which includes `slot`) to let the student
+   * pick among several start times, as the phone day list does for an open gap.
+   */
+  select: (slot: BookableSlot, starts?: BookableSlot[]) => void;
+};
 
 const BookingContext = createContext<BookingContextValue | null>(null);
 
 /**
  * Lets anything on the instrument page open the booking dialog: a slot in the grid,
- * an overnight cell, or the header's "Book time" button. Outside a provider (the
+ * an overnight cell, a gap in the phone day list, or the header's "Book time" button. Outside a provider (the
  * public embed), `useBooking()` returns null and nothing is clickable.
  */
 export function BookingProvider({
@@ -31,17 +37,24 @@ export function BookingProvider({
   timeZone: string;
   children: ReactNode;
 }) {
-  const [selected, setSelected] = useState<BookableSlot | null>(null);
+  const [selected, setSelected] = useState<{ slot: BookableSlot; starts?: BookableSlot[] } | null>(
+    null,
+  );
+  const select = useCallback(
+    (slot: BookableSlot, starts?: BookableSlot[]) => setSelected({ slot, starts }),
+    [],
+  );
   const close = useCallback(() => setSelected(null), []);
 
   return (
-    <BookingContext.Provider value={{ select: setSelected }}>
+    <BookingContext.Provider value={{ select }}>
       {children}
       {selected && (
         <BookingDialog
           instrument={instrument}
-          slot={selected}
-          windowSummary={windowSummaries[selected.windowId] ?? selected.windowName}
+          slot={selected.slot}
+          starts={selected.starts}
+          windowSummary={windowSummaries[selected.slot.windowId] ?? selected.slot.windowName}
           advisors={advisors}
           defaultAdvisorId={defaultAdvisorId}
           advisorRequired={advisorRequired}

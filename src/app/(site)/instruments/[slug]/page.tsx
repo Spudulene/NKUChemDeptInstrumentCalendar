@@ -18,12 +18,14 @@ import {
 } from "@/lib/time";
 import { computeBookableSlots } from "@/lib/booking/slots";
 import { findOpenings } from "@/lib/booking/availability";
-import { windowSpanMinutes } from "@/lib/booking/windows";
+import { expandWindows, windowSpanMinutes } from "@/lib/booking/windows";
+import { buildAgenda } from "@/lib/agenda";
 import { buildScheduleView, type ScheduleBooking } from "@/lib/schedule-view";
-import { sundayOf, weekRangeLabel } from "@/lib/week";
+import { campusDays, sundayOf, weekRangeLabel } from "@/lib/week";
 import { windowDays, windowHours, windowRule, windowSummary } from "@/lib/window-copy";
 import { BookingProvider, BookTimeButton } from "@/components/booking-provider";
 import { CancelBookingButton } from "@/components/cancel-booking-button";
+import { DayAgenda } from "@/components/day-agenda";
 import { WeekGrid } from "@/components/week-grid";
 import { ButtonLink, Card, InstrumentTile, buttonClass } from "@/components/ui";
 
@@ -145,6 +147,19 @@ export default async function InstrumentPage({
     bookings: scheduleBookings,
     slots,
   });
+
+  // Phones get the day-at-a-time list instead of the seven-column grid ("Phone · Day
+  // schedule"). Both are rendered and CSS picks one by width. A day early, so an
+  // overnight window opening Saturday still counts against Sunday morning.
+  const agenda = buildAgenda({
+    days: campusDays(weekStart, 7, today),
+    occurrences: expandWindows(instrument.windows, addCivilDays(weekStart, -1), weekEnd),
+    bookings: scheduleBookings,
+    slots,
+    now,
+  });
+  const initialDay =
+    agenda.find((d) => d.isToday) ?? agenda.find((d) => d.hasOpen) ?? agenda[0];
 
   // "Book time" opens the soonest slot in view; with none this week, it points at the
   // week holding the next opening instead.
@@ -280,7 +295,8 @@ export default async function InstrumentPage({
                 </Link>
               )}
             </div>
-            <ul aria-label="Legend" className="flex flex-wrap gap-x-4 gap-y-1.5 text-[13px] font-medium text-ink-2">
+            {/* The phone list labels its own entries; the legend describes the grid. */}
+            <ul aria-label="Legend" className="hidden flex-wrap gap-x-4 gap-y-1.5 text-[13px] font-medium text-ink-2 sm:flex">
               {canBook && <Swatch className="bg-mine">Yours</Swatch>}
               <Swatch className="bg-surface shadow-[inset_0_0_0_1px_var(--ui-border2)]">Booked</Swatch>
               <Swatch className="stripes-class shadow-[inset_0_0_0_2px_var(--ui-gold)]">Class</Swatch>
@@ -289,11 +305,16 @@ export default async function InstrumentPage({
             </ul>
           </div>
 
-          <WeekGrid view={view} />
+          <div className="sm:hidden">
+            <DayAgenda days={agenda} initialKey={initialDay.key} />
+          </div>
+          <div className="hidden sm:block">
+            <WeekGrid view={view} />
+          </div>
 
           <p className="mx-0.5 mt-2.5 text-[13px] text-ink-3">
             {canBook
-              ? "Click any open time to book it. "
+              ? "Choose any open time to book it. "
               : ""}
             {user
               ? "You can see who has each slot so you know who to ask about a conflict — but not what they're running."

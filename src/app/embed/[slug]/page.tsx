@@ -17,8 +17,8 @@ import { campusDays, sundayOf, weekRangeLabel, type CampusDay } from "@/lib/week
 import { WeekGrid } from "@/components/week-grid";
 import { buttonClass } from "@/components/ui";
 import { buildScheduleView, type ScheduleBooking } from "@/lib/schedule-view";
-import { EmbedAgenda } from "@/components/embed-agenda";
-import { buildAgenda } from "./agenda";
+import { DayAgenda } from "@/components/day-agenda";
+import { buildAgenda } from "@/lib/agenda";
 
 export const metadata: Metadata = {
   title: "Instrument availability — NKU Chemistry",
@@ -120,13 +120,7 @@ export default async function EmbedPage({
       ? buildAgenda({
           days,
           occurrences,
-          bookings: blocks.map((b) => ({
-            id: b.id,
-            start: b.start,
-            end: b.end,
-            label: b.label,
-            tone: b.tone === "mine" ? "student" : b.tone,
-          })),
+          bookings: blocks,
           now: new Date(),
         })
       : [];
@@ -233,7 +227,7 @@ export default async function EmbedPage({
         {view === "week" ? (
           <>
             <div className="sm:hidden">
-              <EmbedAgenda days={agenda} initialKey={initialDay.key} slug={slug} />
+              <DayAgenda days={agenda} initialKey={initialDay.key} embedSlug={slug} />
             </div>
             <div className="hidden sm:block">
               <WeekGrid view={weekView!} />

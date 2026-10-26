@@ -23,7 +23,8 @@ const initialState: ActionState = { error: null };
  */
 export function BookingDialog({
   instrument,
-  slot,
+  slot: initialSlot,
+  starts = [],
   windowSummary,
   advisors,
   defaultAdvisorId,
@@ -33,6 +34,8 @@ export function BookingDialog({
 }: {
   instrument: DialogInstrument;
   slot: BookableSlot;
+  /** Other starts the student may switch to (the "Phone · Book time" sheet's Start). */
+  starts?: BookableSlot[];
   windowSummary: string;
   advisors: AdvisorOption[];
   defaultAdvisorId: string | null;
@@ -45,6 +48,7 @@ export function BookingDialog({
   onClose: () => void;
 }) {
   const [state, formAction, pending] = useActionState(createBookingAction, initialState);
+  const [slot, setSlot] = useState(initialSlot);
   // Controlled, because React resets uncontrolled fields after a submit — a booking
   // that fails (someone took the slot) shouldn't also lose the student's note.
   const [duration, setDuration] = useState(slot.durations[0]);
@@ -75,6 +79,16 @@ export function BookingDialog({
   }).format(slot.start);
   const end = new Date(slot.start.getTime() + duration * 60_000);
   const range = `${clock.format(slot.start)} – ${clock.format(end)}`;
+
+  const pickStart = (iso: string) => {
+    const next = starts.find((s) => s.start.toISOString() === iso);
+    if (!next) return;
+    setSlot(next);
+    // Keep the chosen length if it still fits, else the longest that does.
+    setDuration((d) =>
+      next.durations.includes(d) ? d : (next.durations.filter((m) => m <= d).at(-1) ?? next.durations[0]),
+    );
+  };
 
   const lengthLabel = (minutes: number) => {
     const h = Math.floor(minutes / 60);
@@ -140,6 +154,22 @@ export function BookingDialog({
                 {dayLabel} · {range}
               </p>
             </div>
+
+            {starts.length > 1 && (
+              <Field label="Start">
+                <select
+                  value={slot.start.toISOString()}
+                  onChange={(e) => pickStart(e.target.value)}
+                  className={`${fieldClass} tabular-nums`}
+                >
+                  {starts.map((s) => (
+                    <option key={s.start.getTime()} value={s.start.toISOString()}>
+                      {clock.format(s.start)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
 
             {slot.durations.length > 1 ? (
               <Segmented

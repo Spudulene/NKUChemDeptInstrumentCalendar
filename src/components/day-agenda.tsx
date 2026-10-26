@@ -1,37 +1,47 @@
 "use client";
 
 import { useState } from "react";
-import type { AgendaDay, AgendaItem } from "@/app/embed/[slug]/agenda";
+import type { AgendaDay, AgendaItem } from "@/lib/agenda";
+import { useBooking } from "@/components/booking-provider";
+
+const BOOK =
+  "inline-flex min-h-11 items-center rounded-[9px] bg-gold px-3.5 text-sm font-extrabold text-on-gold no-underline";
 
 const TAKEN_TONE: Record<
   Extract<AgendaItem, { kind: "taken" }>["tone"],
   string
 > = {
   student: "bg-surface text-ink shadow-[inset_0_0_0_1px_var(--ui-border2)]",
+  mine: "bg-mine text-on-mine",
   class: "stripes-class text-ink shadow-[inset_0_0_0_2px_var(--ui-gold)]",
   maintenance:
     "stripes-maintenance text-ink-2 shadow-[inset_0_0_0_1px_var(--ui-border2)]",
 };
 
 /**
- * The embed's phone layout, from the "Phone · Day schedule" artboard: a strip of the
+ * The phone layout of a week, from the "Phone · Day schedule" artboard: a strip of the
  * week's days, then the chosen day as a list of open and taken time. A seven-column
  * time grid at 390px wide shows three days and scrolls sideways; this shows one day
  * that fits.
  *
  * Every day is computed on the server and switching is local state, so tapping a day
- * is instant and the iframe never reloads.
+ * is instant and the page (or the embed's iframe) never reloads.
+ *
+ * Inside a `BookingProvider` (the instrument page), "Book" opens the booking dialog on
+ * the gap's start times. Given `embedSlug` instead, it opens the app in a new tab,
+ * since booking needs a sign-in the embed's frame can't hold.
  */
-export function EmbedAgenda({
+export function DayAgenda({
   days,
   initialKey,
-  slug,
+  embedSlug,
 }: {
   days: AgendaDay[];
   initialKey: string;
-  slug: string;
+  embedSlug?: string;
 }) {
   const [selectedKey, setSelectedKey] = useState(initialKey);
+  const booking = useBooking();
   const day = days.find((d) => d.key === selectedKey) ?? days[0];
 
   return (
@@ -49,7 +59,7 @@ export function EmbedAgenda({
               type="button"
               aria-pressed={on}
               aria-current={d.isToday ? "date" : undefined}
-              aria-label={`${d.title}${d.isToday ? ", today" : ""}${
+              aria-label={`${d.title}${d.isToday ? ", today" : ""}${d.hasMine ? ", you have a booking" : ""}${
                 d.windows.length === 0
                   ? ", no bookable hours"
                   : d.hasOpen
@@ -71,10 +81,12 @@ export function EmbedAgenda({
               <span className="text-lg leading-tight font-extrabold">
                 {d.dayOfMonth}
               </span>
-              {/* Gold dot: something is still bookable that day. */}
+              {/* Your booking that day, as in the artboard; else gold if there's room left. */}
               <span
                 aria-hidden="true"
-                className={`mt-0.5 size-1.5 rounded-full ${d.hasOpen ? "bg-gold" : "bg-transparent"}`}
+                className={`mt-0.5 size-1.5 rounded-full ${
+                  d.hasMine && !on ? "bg-mine" : d.hasMine || d.hasOpen ? "bg-gold" : "bg-transparent"
+                }`}
               />
             </button>
           );
@@ -119,20 +131,40 @@ export function EmbedAgenda({
                     <span className="text-sm font-semibold">
                       Open · {item.free}
                     </span>
-                    <a
-                      href={`/instruments/${slug}?week=${day.key}`}
-                      target="_blank"
-                      rel="noopener"
-                      className="inline-flex min-h-11 items-center rounded-[9px] bg-gold px-3.5 text-sm font-extrabold text-on-gold no-underline"
-                    >
-                      Book
-                      <span className="sr-only">
-                        {" "}
-                        {item.start} to {item.end}
-                        {item.endsNextDay ? " the next day" : ""} (opens in a
-                        new tab)
-                      </span>
-                    </a>
+                    {embedSlug ? (
+                      <a
+                        href={`/instruments/${embedSlug}?week=${day.key}`}
+                        target="_blank"
+                        rel="noopener"
+                        className={BOOK}
+                      >
+                        Book
+                        <span className="sr-only">
+                          {" "}
+                          {item.start} to {item.end}
+                          {item.endsNextDay ? " the next day" : ""} (opens in a
+                          new tab)
+                        </span>
+                      </a>
+                    ) : (
+                      // No button where this viewer can't book: signed out, staff, or
+                      // ruled out by lead time, the horizon or changeover.
+                      booking &&
+                      item.starts.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => booking.select(item.starts[0], item.starts)}
+                          className={BOOK}
+                        >
+                          Book
+                          <span className="sr-only">
+                            {" "}
+                            {item.start} to {item.end}
+                            {item.endsNextDay ? " the next day" : ""}
+                          </span>
+                        </button>
+                      )
+                    )}
                   </div>
                 ) : (
                   <div
@@ -146,6 +178,11 @@ export function EmbedAgenda({
                     <span className="block text-[15px] font-bold">
                       {item.label}
                     </span>
+                    {item.sublabel && (
+                      <span className="mt-px block text-[13px] font-medium">
+                        {item.sublabel}
+                      </span>
+                    )}
                   </div>
                 )}
               </li>

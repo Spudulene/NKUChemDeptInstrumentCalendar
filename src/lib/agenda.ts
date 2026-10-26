@@ -1,5 +1,6 @@
 import type { BookableSlot } from "@/lib/booking/slots";
-import type { WindowOccurrence } from "@/lib/booking/windows";
+import type { Unbookable } from "@/lib/booking/unbookable";
+import type { Interval, WindowOccurrence, WindowRule } from "@/lib/booking/windows";
 import { subtractIntervals } from "@/lib/booking/windows";
 import {
   civilToISODate,
@@ -43,6 +44,8 @@ export type AgendaItem =
       windowName: string;
       /** Every start the viewer could book in this gap; empty where no one can book here. */
       starts: BookableSlot[];
+      /** Why no one can book this gap, when that's the case. */
+      unbookable?: Unbookable;
     } & Clock)
   | ({ kind: "taken"; key: string; label: string; sublabel?: string; tone: Tone } & Clock);
 
@@ -55,6 +58,7 @@ export type AgendaDay = {
   isToday: boolean;
   /** The windows that open on this day, e.g. "Daytime 08:00–17:00". */
   windows: string[];
+  /** Something is still bookable: open time no one can book doesn't count. */
   hasOpen: boolean;
   /** The viewer has a booking starting this day. */
   hasMine: boolean;
@@ -75,15 +79,17 @@ export type AgendaDay = {
  *
  * `slots` are the viewer's own bookable starts (lead time, horizon and changeover
  * applied); each open gap carries the ones that fall inside it, for the booking dialog.
+ * A gap with none is passed to `explain`, so the list can say why instead of offering it.
  */
 export function buildAgenda(args: {
   days: CampusDay[];
   occurrences: WindowOccurrence[];
   bookings: AgendaBooking[];
   slots?: BookableSlot[];
+  explain?: (gap: Interval, window: WindowRule) => Unbookable | null;
   now: Date;
 }): AgendaDay[] {
-  const { days, occurrences, bookings, slots = [], now } = args;
+  const { days, occurrences, bookings, slots = [], explain, now } = args;
   const busy = bookings.map((b) => ({ start: b.start, end: b.end }));
 
   return days.map((day) => {
@@ -118,16 +124,21 @@ export function buildAgenda(args: {
               o.window.minDurationMinutes,
           );
 
-      return usable.map((g) => ({
-        kind: "open" as const,
-        key: `open-${g.start.getTime()}`,
-        free: `${formatDurationMinutes(Math.round((g.end.getTime() - g.start.getTime()) / MINUTE_MS))} free`,
-        windowName: o.window.name,
-        starts: slots.filter(
+      return usable.map((g) => {
+        const starts = slots.filter(
           (s) => s.windowId === o.window.id && s.start >= g.start && s.start < g.end,
-        ),
-        ...clock(g.start, g.end),
-      }));
+        );
+        const unbookable = starts.length === 0 ? explain?.(g, o.window) : null;
+        return {
+          kind: "open" as const,
+          key: `open-${g.start.getTime()}`,
+          free: `${formatDurationMinutes(Math.round((g.end.getTime() - g.start.getTime()) / MINUTE_MS))} free`,
+          windowName: o.window.name,
+          starts,
+          ...(unbookable && { unbookable }),
+          ...clock(g.start, g.end),
+        };
+      });
     });
 
     const taken: AgendaItem[] = bookings
@@ -158,7 +169,7 @@ export function buildAgenda(args: {
         const c = clock(o.start, o.end);
         return `${o.window.name} ${c.start}–${c.end}${c.endsNextDay ? " next day" : ""}`;
       }),
-      hasOpen: open.length > 0,
+      hasOpen: open.some((o) => o.kind === "open" && !o.unbookable),
       hasMine: taken.some((t) => t.kind === "taken" && t.tone === "mine"),
       items: [...open, ...taken].sort((a, b) => a.at - b.at),
     };

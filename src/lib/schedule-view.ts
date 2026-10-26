@@ -1,8 +1,10 @@
 import type { BookableSlot } from "@/lib/booking/slots";
+import type { Unbookable } from "@/lib/booking/unbookable";
 import {
   expandWindows,
   normalizedEndMinute,
   subtractIntervals,
+  type Interval,
   type WindowRule,
 } from "@/lib/booking/windows";
 import {
@@ -60,7 +62,14 @@ export type GridSlot = { slot: BookableSlot; time: string; when: string };
 
 export type BlockCell =
   | { day: string; state: "none" }
-  | { day: string; state: "open"; slot: BookableSlot | null; when: string }
+  | {
+      day: string;
+      state: "open";
+      slot: BookableSlot | null;
+      when: string;
+      /** Why no one can book it, when that's the case. */
+      unbookable?: Unbookable;
+    }
   | { day: string; state: "taken"; label: string; tone: ScheduleTone; when: string };
 
 export type BlockRow = { id: string; name: string; hours: string; cells: BlockCell[] };
@@ -85,8 +94,10 @@ export function buildScheduleView(args: {
   windows: readonly WindowRule[];
   bookings: ScheduleBooking[];
   slots: BookableSlot[];
+  /** Explains open time no one can book; see `whyUnbookable`. */
+  explain?: (gap: Interval, window: WindowRule) => Unbookable | null;
 }): ScheduleView {
-  const { weekStart, today, windows, bookings, slots } = args;
+  const { weekStart, today, windows, bookings, slots, explain } = args;
   const weekEnd = addCivilDays(weekStart, 7);
 
   // A day early, so a window that opened Saturday night still reaches Sunday.
@@ -166,7 +177,8 @@ export function buildScheduleView(args: {
         }
         const slot =
           slots.find((s) => s.wholeBlock && s.start.getTime() === occ.start.getTime()) ?? null;
-        return { day: d.key, state: "open", slot, when };
+        const unbookable = slot ? null : explain?.(occ, rule);
+        return { day: d.key, state: "open", slot, when, ...(unbookable && { unbookable }) };
       });
       return { id: rule.id, name: rule.name, hours: windowHours(rule), cells };
     })

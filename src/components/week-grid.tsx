@@ -274,6 +274,18 @@ function BlockRowView({
                 <MoonIcon />
                 Open
               </button>
+            ) : cell.unbookable ? (
+              // Free, but no one can book it: say why, in full on hover and for screen readers.
+              <div
+                title={cell.unbookable.detail}
+                className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border-[1.5px] border-dashed border-line px-1 text-center text-xs font-semibold text-ink-3"
+              >
+                <MoonIcon />
+                {cell.unbookable.label}
+                <span className="sr-only">
+                  , {cell.when}. {cell.unbookable.detail}
+                </span>
+              </div>
             ) : (
               <div className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border-[1.5px] border-dashed border-line-2 text-[13px] font-semibold text-ink-2">
                 <MoonIcon />

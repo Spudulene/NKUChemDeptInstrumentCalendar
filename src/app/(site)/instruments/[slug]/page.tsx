@@ -1,25 +1,36 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { CSSProperties } from "react";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { env } from "@/lib/env";
 import {
   addCivilDays,
-  civilToInstant,
   civilToISODate,
+  civilToInstant,
+  formatClockRange,
+  formatDayLabel,
   formatDurationMinutes,
   formatRange,
-  minutesToClock,
+  instantToCivil,
   parseISODate,
   todayCivil,
 } from "@/lib/time";
-import { crossesMidnight, expandWindows, windowSpanMinutes } from "@/lib/booking/windows";
 import { computeBookableSlots } from "@/lib/booking/slots";
 import { findOpenings } from "@/lib/booking/availability";
-import { campusDays, sundayOf } from "@/lib/week";
-import { WeekGrid, type GridBlock, type GridDay } from "@/components/week-grid";
+import { windowSpanMinutes } from "@/lib/booking/windows";
+import { buildScheduleView, type ScheduleBooking } from "@/lib/schedule-view";
+import { sundayOf, weekRangeLabel } from "@/lib/week";
+import { windowDays, windowHours, windowRule, windowSummary } from "@/lib/window-copy";
+import { BookingProvider, BookTimeButton } from "@/components/booking-provider";
 import { CancelBookingButton } from "@/components/cancel-booking-button";
+import { WeekGrid } from "@/components/week-grid";
+import { ButtonLink, Card, InstrumentTile, buttonClass } from "@/components/ui";
 
+/**
+ * One instrument's week, from the "Week schedule" artboard: who has what, the rules,
+ * and — for students — booking, by clicking open time or the "Book time" button.
+ */
 export default async function InstrumentPage({
   params,
   searchParams,
@@ -27,13 +38,16 @@ export default async function InstrumentPage({
   const { slug } = await params;
   const { week } = await searchParams;
 
-  const [user, instrument] = await Promise.all([
+  const [user, instrument, allInstruments] = await Promise.all([
     getSession(),
     db.instrument.findUnique({
       where: { slug },
-      include: {
-        windows: { where: { isActive: true }, orderBy: { sortOrder: "asc" } },
-      },
+      include: { windows: { where: { isActive: true }, orderBy: { sortOrder: "asc" } } },
+    }),
+    db.instrument.findMany({
+      where: { isActive: true },
+      select: { slug: true, name: true, color: true },
+      orderBy: { name: "asc" },
     }),
   ]);
 
@@ -42,13 +56,11 @@ export default async function InstrumentPage({
   const now = new Date();
   const today = todayCivil(now);
   const requested = typeof week === "string" ? parseISODate(week) : null;
-  const anchor = requested ?? today;
-
-  const weekStart = sundayOf(anchor);
+  const weekStart = sundayOf(requested ?? today);
   const weekEnd = addCivilDays(weekStart, 7);
-
   const rangeStart = civilToInstant(weekStart, 0);
   const rangeEnd = civilToInstant(weekEnd, 0);
+  const isThisWeek = civilToISODate(weekStart) === civilToISODate(sundayOf(today));
 
   const [bookings, advisors, profile] = await Promise.all([
     db.booking.findMany({
@@ -67,52 +79,35 @@ export default async function InstrumentPage({
       orderBy: { name: "asc" },
     }),
     user
-      ? db.user.findUnique({
-          where: { id: user.id },
-          select: { advisorId: true },
-        })
+      ? db.user.findUnique({ where: { id: user.id }, select: { advisorId: true } })
       : Promise.resolve(null),
   ]);
 
-  // A day early, so an overnight window opening Saturday still shades Sunday morning.
-  const occurrences = expandWindows(
-    instrument.windows,
-    addCivilDays(weekStart, -1),
-    weekEnd,
-  );
-
-  const busy = bookings.map((b) => ({ start: b.startsAt, end: b.endsAt }));
-
-  // Only students book through this grid; instructors and admins reserve class time
-  // on /classes, which can displace student bookings.
+  // Only students book here; instructors and admins reserve class time on /classes,
+  // which can displace student bookings.
   const canBook = user?.role === "STUDENT";
+  const isStaff = user?.role === "INSTRUCTOR" || user?.role === "ADMIN";
 
   const slots = canBook
     ? computeBookableSlots({
         windows: instrument.windows,
-        busy,
+        busy: bookings.map((b) => ({ start: b.startsAt, end: b.endsAt })),
         from: rangeStart,
         to: rangeEnd,
         earliest: new Date(
-          Math.max(
-            rangeStart.getTime(),
-            now.getTime() + instrument.minLeadTimeMinutes * 60_000,
-          ),
+          Math.max(rangeStart.getTime(), now.getTime() + instrument.minLeadTimeMinutes * 60_000),
         ),
         latest: new Date(now.getTime() + instrument.bookingHorizonDays * 86_400_000),
         bufferMinutes: instrument.bufferMinutes,
       })
     : [];
 
-  const days: GridDay[] = campusDays(weekStart, 7, today);
-
-  const blocks: GridBlock[] = bookings.map((booking) => {
+  const scheduleBookings: ScheduleBooking[] = bookings.map((booking) => {
     const mine = user?.id === booking.user.id;
     return {
       id: booking.id,
       start: booking.startsAt,
       end: booking.endsAt,
-      when: formatRange(booking.startsAt, booking.endsAt),
       // Class and maintenance announce themselves; student bookings show only a name,
       // since what someone is running is their business. Only signed-in members of the
       // department get the name: this page is reachable by anyone with the URL.
@@ -143,233 +138,306 @@ export default async function InstrumentPage({
     };
   });
 
-  const myBookings = user
-    ? bookings.filter((b) => b.user.id === user.id && b.endsAt > now)
-    : [];
-
-  const shortest = Math.min(
-    ...instrument.windows.map((w) =>
-      w.wholeBlockOnly ? windowSpanMinutes(w) : w.minDurationMinutes,
-    ),
-  );
-  const openings = await findOpenings({
-    instrumentId: instrument.id,
-    durationMinutes: Number.isFinite(shortest) ? shortest : 60,
-    limit: 3,
+  const view = buildScheduleView({
+    weekStart,
+    today,
+    windows: instrument.windows,
+    bookings: scheduleBookings,
+    slots,
   });
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <Link
-            href="/"
-            className="text-sm text-ink-3 underline-offset-4 hover:underline"
-          >
-            ← All instruments
-          </Link>
-          <h1 className="mt-2 flex items-center gap-2 text-2xl font-semibold tracking-tight">
-            <span
-              aria-hidden
-              className="size-3 rounded-full"
-              style={{ backgroundColor: instrument.color }}
-            />
-            {instrument.name}
-          </h1>
-          {instrument.location && (
-            <p className="text-ink-2">{instrument.location}</p>
-          )}
+  // "Book time" opens the soonest slot in view; with none this week, it points at the
+  // week holding the next opening instead.
+  const firstSlot = slots.find((s) => s.start > now) ?? null;
+  const shortest = Math.min(
+    ...instrument.windows.map((w) => (w.wholeBlockOnly ? windowSpanMinutes(w) : w.minDurationMinutes)),
+  );
+  const nextOpening =
+    canBook && !firstSlot
+      ? (
+          await findOpenings({
+            instrumentId: instrument.id,
+            durationMinutes: Number.isFinite(shortest) ? shortest : 60,
+            limit: 1,
+          })
+        )[0]
+      : undefined;
+
+  // The signed-in student's own week: what they've booked and how much of each cap.
+  const mine = user ? bookings.filter((b) => b.user.id === user.id) : [];
+  const usage = canBook
+    ? [
+        ...instrument.windows
+          .filter((w) => w.maxBookingsPerUserPerWeek)
+          .map((w) => ({
+            label: `${w.name} bookings`,
+            used: mine.filter((b) => b.windowId === w.id).length,
+            cap: w.maxBookingsPerUserPerWeek!,
+            unit: "",
+          })),
+        ...(instrument.maxMinutesPerUserPerWeek
+          ? [
+              {
+                label: "Hours this week",
+                used: mine.reduce((sum, b) => sum + (b.endsAt.getTime() - b.startsAt.getTime()) / 60_000, 0) / 60,
+                cap: instrument.maxMinutesPerUserPerWeek / 60,
+                unit: " h",
+              },
+            ]
+          : []),
+      ]
+    : [];
+  const upcomingMine = mine.filter((b) => b.endsAt > now);
+
+  const weekHref = (start: typeof weekStart) => `/instruments/${slug}?week=${civilToISODate(start)}`;
+  const navButton = buttonClass({ variant: "secondary", size: "icon" });
+
+  const page = (
+    <div>
+      <nav aria-label="Breadcrumb" className="text-sm text-ink-3">
+        <Link href="/" className="font-semibold text-ink-2">
+          Instruments
+        </Link>
+        <span aria-hidden="true" className="mx-2">
+          /
+        </span>
+        <span aria-current="page" className="text-ink">
+          {instrument.name}
+        </span>
+      </nav>
+
+      {allInstruments.length > 1 && (
+        <nav aria-label="Switch instrument" className="mt-4 flex flex-wrap gap-2">
+          {allInstruments.map((other) => {
+            const current = other.slug === slug;
+            return (
+              <Link
+                key={other.slug}
+                href={`/instruments/${other.slug}${isThisWeek ? "" : `?week=${civilToISODate(weekStart)}`}`}
+                aria-current={current ? "page" : undefined}
+                style={{ "--inst": other.color } as CSSProperties}
+                className={`inline-flex min-h-10 items-center gap-2 rounded-full px-3.5 text-sm font-semibold no-underline ${
+                  current ? "bg-ink text-bg" : "bg-surface text-ink-2 shadow-[inset_0_0_0_1px_var(--ui-border)] hover:text-ink"
+                }`}
+              >
+                <span aria-hidden="true" className="inst-dot size-2.5 rounded-full" />
+                {other.name}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-4">
+          <InstrumentTile name={instrument.name} color={instrument.color} size="lg" />
+          <div className="min-w-0">
+            <h1 className="text-[32px] leading-tight font-extrabold tracking-[-0.02em]">{instrument.name}</h1>
+            <p className="mt-1 text-[15px] text-ink-2">
+              {[instrument.location, instrument.requireResearchAdvisor && "Research group required"]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          </div>
         </div>
 
-        <nav className="flex items-center gap-1 text-sm">
-          <Link
-            href={`/instruments/${slug}?week=${civilToISODate(addCivilDays(weekStart, -7))}`}
-            className="rounded-lg border border-line bg-surface px-3 py-1.5 hover:border-line-2"
-          >
-            ←
-          </Link>
-          <Link
-            href={`/instruments/${slug}`}
-            className="rounded-lg border border-line bg-surface px-3 py-1.5 hover:border-line-2"
-          >
-            Today
-          </Link>
-          <Link
-            href={`/instruments/${slug}?week=${civilToISODate(addCivilDays(weekStart, 7))}`}
-            className="rounded-lg border border-line bg-surface px-3 py-1.5 hover:border-line-2"
-          >
-            →
-          </Link>
-        </nav>
+        {canBook ? (
+          firstSlot ? (
+            <BookTimeButton slot={firstSlot} className={buttonClass({ size: "lg" })} />
+          ) : nextOpening ? (
+            <ButtonLink size="lg" href={weekHref(sundayOf(instantToCivil(nextOpening.start)))}>
+              Next open: {formatRange(nextOpening.start, nextOpening.end).split(" – ")[0]}
+            </ButtonLink>
+          ) : null
+        ) : isStaff ? (
+          <ButtonLink size="lg" href={`/classes?instrument=${slug}`}>
+            Reserve for a class
+          </ButtonLink>
+        ) : (
+          !user &&
+          env.ENABLE_DEV_LOGIN && (
+            <ButtonLink size="lg" href="/dev-login">
+              Sign in to book
+            </ButtonLink>
+          )
+        )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-ink-2">
-          {canBook ? (
-            <>Click any open time to book it.</>
-          ) : user ? (
-            // Everyone signed in who isn't a student is an instructor or admin.
-            <>
-              Viewing the schedule.{" "}
-              <Link
-                href={`/classes?instrument=${slug}`}
-                className="font-semibold underline underline-offset-4"
-              >
-                Reserve {instrument.name} for a class
+      <div className="mt-6 flex flex-wrap items-start gap-6">
+        <section aria-label={`Week of ${weekRangeLabel(weekStart)}`} className="min-w-0 flex-[999_1_640px]">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Link href={weekHref(addCivilDays(weekStart, -7))} aria-label="Previous week" className={navButton}>
+                <Chevron direction="left" />
               </Link>
-            </>
-          ) : (
-            <>
-              <Link href="/dev-login" className="underline underline-offset-4">
-                Sign in
-              </Link>{" "}
-              to book time.
-            </>
-          )}
-        </p>
-        <ul className="flex flex-wrap gap-3 text-xs text-ink-3">
-          <Legend className="bg-ok-soft border-line-2">Open</Legend>
-          <Legend className="bg-surface border-line-2">Booked</Legend>
-          <Legend className="bg-mine border-mine">Yours</Legend>
-          <Legend className="stripes-class border-gold">Class</Legend>
-          <Legend className="stripes-maintenance border-line-2">Maintenance</Legend>
-        </ul>
-      </div>
-
-      <WeekGrid
-        slug={slug}
-        days={days}
-        bands={occurrences.map((o) => ({
-          id: o.window.id,
-          start: o.start,
-          end: o.end,
-        }))}
-        blocks={blocks}
-        slots={slots}
-        advisors={advisors}
-        defaultAdvisorId={profile?.advisorId ?? null}
-        advisorRequired={instrument.requireResearchAdvisor}
-        timeZone={env.CAMPUS_TIMEZONE}
-        canBook={canBook}
-      />
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <section className="rounded-xl border border-line bg-surface p-5">
-          <h2 className="text-sm font-medium">
-            {myBookings.length > 0 ? "Your bookings this week" : "Bookable hours"}
-          </h2>
-
-          {myBookings.length > 0 ? (
-            <ul className="mt-3 space-y-3 text-sm">
-              {myBookings.map((booking) => (
-                <li
-                  key={booking.id}
-                  className="flex items-start justify-between gap-4 border-b border-line pb-3 last:border-0 last:pb-0"
-                >
-                  <div>
-                    <div className="text-ink-2">
-                      {formatRange(booking.startsAt, booking.endsAt)}
-                    </div>
-                    {booking.description && (
-                      <div className="text-xs text-ink-3">
-                        {booking.description}
-                      </div>
-                    )}
-                  </div>
-                  <CancelBookingButton bookingId={booking.id} />
-                </li>
-              ))}
+              <Link href={weekHref(addCivilDays(weekStart, 7))} aria-label="Next week" className={navButton}>
+                <Chevron direction="right" />
+              </Link>
+              <h2 className="ml-1.5 text-xl font-bold tracking-[-0.01em]">{weekRangeLabel(weekStart)}</h2>
+              {!isThisWeek && (
+                <Link href={`/instruments/${slug}`} className="ml-1 text-sm font-semibold text-ink-2 underline underline-offset-4">
+                  This week
+                </Link>
+              )}
+            </div>
+            <ul aria-label="Legend" className="flex flex-wrap gap-x-4 gap-y-1.5 text-[13px] font-medium text-ink-2">
+              {canBook && <Swatch className="bg-mine">Yours</Swatch>}
+              <Swatch className="bg-surface shadow-[inset_0_0_0_1px_var(--ui-border2)]">Booked</Swatch>
+              <Swatch className="stripes-class shadow-[inset_0_0_0_2px_var(--ui-gold)]">Class</Swatch>
+              <Swatch className="stripes-maintenance shadow-[inset_0_0_0_1px_var(--ui-border2)]">Maintenance</Swatch>
+              <Swatch className="bg-sunken">Not bookable</Swatch>
             </ul>
-          ) : (
-            <dl className="mt-3 space-y-2 text-sm">
-              {instrument.windows.map((window) => (
-                <div key={window.id} className="flex justify-between gap-4">
-                  <dt className="text-ink-2">{window.name}</dt>
-                  <dd className="text-right text-ink-3">
-                    {minutesToClock(window.startMinute)}–
-                    {minutesToClock(window.endMinute)}
-                    {crossesMidnight(window) && (
-                      <span className="text-ink-3"> next day</span>
-                    )}
-                    <div className="text-xs text-ink-3">
-                      {window.wholeBlockOnly
-                        ? `one ${formatDurationMinutes(windowSpanMinutes(window))} block`
-                        : `${formatDurationMinutes(window.minDurationMinutes)}–${formatDurationMinutes(window.maxDurationMinutes)}`}
-                    </div>
-                  </dd>
+          </div>
+
+          <WeekGrid view={view} />
+
+          <p className="mx-0.5 mt-2.5 text-[13px] text-ink-3">
+            {canBook
+              ? "Click any open time to book it. "
+              : ""}
+            {user
+              ? "You can see who has each slot so you know who to ask about a conflict — but not what they're running."
+              : "Sign in to see who has each slot."}
+          </p>
+        </section>
+
+        <aside className="flex min-w-0 flex-[1_1_280px] flex-col gap-4">
+          {canBook && (
+            <Card as="section" aria-labelledby="week-h" className="p-5">
+              <h2 id="week-h" className="text-base font-bold">
+                Your week on this instrument
+              </h2>
+              {usage.map((u) => (
+                <div key={u.label} className="mt-4">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-ink-2">{u.label}</span>
+                    <strong>
+                      {Number(u.used.toFixed(1))} of {u.cap}
+                      {u.unit}
+                    </strong>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label={u.label}
+                    aria-valuemin={0}
+                    aria-valuemax={u.cap}
+                    aria-valuenow={u.used}
+                    className="mt-2 h-2 overflow-hidden rounded-full bg-sunken"
+                  >
+                    <div className="h-full rounded-full bg-mine" style={{ width: `${Math.min(100, (u.used / u.cap) * 100)}%` }} />
+                  </div>
                 </div>
               ))}
-            </dl>
+              {upcomingMine.length > 0 ? (
+                <ul className={`flex flex-col gap-3 ${usage.length ? "mt-[18px] border-t border-line pt-3.5" : "mt-3"}`}>
+                  {upcomingMine.map((b) => (
+                    <li key={b.id} className="flex items-start justify-between gap-3 text-sm">
+                      <div>
+                        <div>
+                          <span className="font-semibold">{formatDayLabel(b.startsAt)}</span>{" "}
+                          <span className="whitespace-nowrap text-ink-2 tabular-nums">{formatClockRange(b.startsAt, b.endsAt)}</span>
+                        </div>
+                        {b.description && <div className="text-xs text-ink-3">{b.description}</div>}
+                      </div>
+                      <CancelBookingButton bookingId={b.id} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-sm text-ink-3">Nothing booked this week.</p>
+              )}
+            </Card>
           )}
-        </section>
 
-        <section className="rounded-xl border border-line bg-surface p-5">
-          <h2 className="text-sm font-medium">Next available</h2>
-          {openings.length === 0 ? (
-            <p className="mt-3 text-sm text-ink-3">
-              Nothing open in the next {instrument.bookingHorizonDays} days.
-            </p>
-          ) : (
-            <ul className="mt-3 space-y-2 text-sm">
-              {openings.map((opening) => (
-                <li
-                  key={opening.start.toISOString()}
-                  className="flex justify-between gap-4"
-                >
-                  <span className="text-ink-2">
-                    {formatRange(opening.start, opening.end)}
-                  </span>
-                  <span className="shrink-0 text-xs text-ink-3">
-                    {opening.windowName}
-                  </span>
+          <Card as="section" aria-labelledby="rules-h" className="p-5">
+            <h2 id="rules-h" className="text-base font-bold">
+              How booking works here
+            </h2>
+            <ul className="mt-3.5 flex flex-col gap-3.5">
+              {instrument.windows.map((w) => (
+                <li key={w.id}>
+                  <div className="flex items-baseline justify-between gap-x-3">
+                    <strong className="text-[15px]">{w.name}</strong>
+                    <span className="text-right text-[13px] text-ink-2 tabular-nums">
+                      {windowDays(w)} · {windowHours(w)}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[13px] leading-[1.45] text-ink-3">{windowRule(w)}</p>
                 </li>
               ))}
             </ul>
-          )}
-        </section>
+            <ul className="mt-4 flex flex-col gap-1.5 border-t border-line pt-3.5 text-[13px] text-ink-2">
+              <li>Bookings open {instrument.bookingHorizonDays} days ahead</li>
+              {instrument.minLeadTimeMinutes > 0 && (
+                <li>Book at least {formatDurationMinutes(instrument.minLeadTimeMinutes)} ahead</li>
+              )}
+              <li>Cancel up to {formatDurationMinutes(instrument.cancellationDeadlineMinutes)} before start</li>
+              {instrument.bufferMinutes > 0 && (
+                <li>{formatDurationMinutes(instrument.bufferMinutes)} changeover between bookings</li>
+              )}
+              {instrument.maxMinutesPerUserPerWeek && (
+                <li>Up to {formatDurationMinutes(instrument.maxMinutesPerUserPerWeek)} per student per week</li>
+              )}
+              <li>Class and maintenance blocks take priority</li>
+            </ul>
+          </Card>
+        </aside>
       </div>
 
       {user?.role === "ADMIN" && (
-        <details className="rounded-xl border border-line bg-surface p-5">
-          <summary className="cursor-pointer text-sm font-medium">
-            Show this calendar on the department&apos;s website
-          </summary>
-          <p className="mt-3 text-sm text-ink-2">
-            Paste this where the Google Calendar embed used to be. It shows booked and open
-            time without names, and its button opens this page to book. Only nku.edu pages
-            can display it.{" "}
-            <a
-              href={`/embed/${slug}`}
-              target="_blank"
-              rel="noopener"
-              className="font-semibold underline underline-offset-4"
-            >
-              Preview
-            </a>
-          </p>
-          <pre className="mt-3 overflow-x-auto rounded-lg bg-sunken p-3 text-xs text-ink">
-            <code>{`<iframe src="${env.APP_URL}/embed/${slug}" title="${instrument.name} availability" width="100%" height="800" style="border:0" loading="lazy"></iframe>`}</code>
-          </pre>
-          <p className="mt-2 text-xs text-ink-3">
-            Add <code>?view=month</code> to the address for a month view like Google
-            Calendar&apos;s.
-          </p>
-        </details>
+        <Card as="section" className="mt-6 p-5">
+          <details>
+            <summary className="cursor-pointer text-[15px] font-bold">
+              Show this calendar on the department&apos;s website
+            </summary>
+            <p className="mt-3 text-sm text-ink-2">
+              Paste this where the Google Calendar embed used to be. It shows booked and open time
+              without names, and its button opens this page to book. Only nku.edu pages can display
+              it.{" "}
+              <a href={`/embed/${slug}`} target="_blank" rel="noopener" className="font-semibold underline underline-offset-4">
+                Preview
+              </a>
+            </p>
+            <pre className="mt-3 overflow-x-auto rounded-[10px] bg-sunken p-3 text-xs text-ink">
+              <code>{`<iframe src="${env.APP_URL}/embed/${slug}" title="${instrument.name} availability" width="100%" height="800" style="border:0" loading="lazy"></iframe>`}</code>
+            </pre>
+            <p className="mt-2 text-xs text-ink-3">
+              Add <code>?view=month</code> to the address for a month view like Google Calendar&apos;s.
+            </p>
+          </details>
+        </Card>
       )}
     </div>
   );
+
+  if (!canBook) return page;
+
+  return (
+    <BookingProvider
+      instrument={{ slug, name: instrument.name, location: instrument.location, color: instrument.color }}
+      windowSummaries={Object.fromEntries(instrument.windows.map((w) => [w.id, windowSummary(w)]))}
+      advisors={advisors}
+      defaultAdvisorId={profile?.advisorId ?? null}
+      advisorRequired={instrument.requireResearchAdvisor}
+      timeZone={env.CAMPUS_TIMEZONE}
+    >
+      {page}
+    </BookingProvider>
+  );
 }
 
-function Legend({
-  className,
-  children,
-}: {
-  className: string;
-  children: React.ReactNode;
-}) {
+function Chevron({ direction }: { direction: "left" | "right" }) {
   return (
-    <li className="flex items-center gap-1.5">
-      <span aria-hidden className={`size-3 rounded border ${className}`} />
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={direction === "left" ? "M15 6l-6 6 6 6" : "M9 6l6 6-6 6"} />
+    </svg>
+  );
+}
+
+function Swatch({ className, children }: { className: string; children: React.ReactNode }) {
+  return (
+    <li className="flex items-center gap-[7px]">
+      <span aria-hidden="true" className={`size-3.5 flex-none rounded ${className}`} />
       {children}
     </li>
   );

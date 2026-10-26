@@ -26,3 +26,7 @@ See [README.md](README.md) for the architecture. Things that are easy to get wro
   `Instrument` / `BookingWindow`. The datasource URL lives in `prisma.config.ts`, not
   the schema. A driver adapter is required at runtime.
 - Run `npm run db:verify` after touching anything in `src/lib/booking/` or `src/lib/time.ts`.
+- **UI follows the design canvas.** Read [docs/DESIGN.md](docs/DESIGN.md) before building
+  or changing a screen: build from `src/components/ui.tsx`, colour only through the
+  tokens in `globals.css` (never hex or Tailwind's palette), and check the canvas for an
+  artboard first.

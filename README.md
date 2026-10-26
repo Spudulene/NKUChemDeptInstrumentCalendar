@@ -299,11 +299,11 @@ a ready-made `<iframe>` snippet from the bottom of any instrument page.
 
 ## Still to build
 
-- **The rest of the design canvas.** The visual system (tokens, header, light/dark)
-  and the instructor's "Reserve for a class" screen (`/classes`) follow the
-  "Instrument Calendar — NKU Prototypes" canvas. The home page, week calendar, booking
-  dialog and phone layouts still have the old layouts in the new colours. "My bookings"
-  and the admin screens appear in the design's header but don't exist yet.
+- **The rest of the design canvas.** Home, the week schedule, the booking dialog (a
+  bottom sheet on phones), class reservations and the embed follow the canvas; see
+  [docs/DESIGN.md](docs/DESIGN.md). Still to build from it: the phone day schedule on the
+  instrument page (the embed already has one), the phone instruments list, "My
+  bookings" and the admin screens.
 - **Recurring class reservations.** A lab that meets every Tuesday for a semester is
   reserved one date at a time today.
 - **Entra SSO.** [`src/lib/auth.ts`](src/lib/auth.ts) has `signInFromEntra` ready for

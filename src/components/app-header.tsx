@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { SessionUser } from "@/lib/auth";
 import { HeaderNav, type NavItem } from "@/components/header-nav";
 import { ThemeSwitcher, type ThemeChoice } from "@/components/theme-switcher";
+import { buttonClass } from "@/components/ui";
 
 const ROLE_LABEL: Record<SessionUser["role"], string> = {
   STUDENT: "Student",
@@ -40,13 +41,13 @@ export function AppHeader({
     <header className="border-b-[3px] border-gold bg-chrome">
       <div className="mx-auto flex min-h-16 max-w-[1240px] flex-wrap items-center gap-x-7 gap-y-2.5 px-6 py-2.5">
         <Link href="/" className="flex items-center gap-3 text-chrome-ink no-underline">
-          <span className="flex size-[38px] flex-none items-center justify-center rounded-[9px] bg-gold">
+          <span className="flex size-[38px] flex-none items-center justify-center rounded-[9px] bg-gold text-on-gold">
             <svg
               width="22"
               height="22"
               viewBox="0 0 24 24"
               fill="none"
-              stroke="#141414"
+              stroke="currentColor"
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -95,7 +96,7 @@ export function AppHeader({
             showSignIn && (
               <Link
                 href="/dev-login"
-                className="inline-flex min-h-11 items-center rounded-[10px] bg-gold px-4 text-[15px] font-bold text-on-gold no-underline"
+                className={buttonClass()}
               >
                 Sign in
               </Link>

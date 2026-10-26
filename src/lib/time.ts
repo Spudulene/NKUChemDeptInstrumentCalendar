@@ -198,3 +198,26 @@ export function formatDurationMinutes(minutes: number): string {
   if (m === 0) return h === 1 ? "1 hour" : `${h} hours`;
   return `${h}h ${m}m`;
 }
+
+/** "Mon, Oct 26" — a campus date, for lists of bookings. */
+export function formatDayLabel(instant: Date): string {
+  const d = instantToCivil(instant);
+  return new Date(Date.UTC(d.y, d.m - 1, d.d)).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/**
+ * "14:00 – 15:00", or "17:00 → Thu 08:00" across midnight — the 24-hour form the
+ * schedules use, so a booking reads the same in a list as on the grid.
+ */
+export function formatClockRange(start: Date, end: Date): string {
+  const clock = (i: Date) => minutesToClock(instantToMinutes(i));
+  const sameDay = compareCivil(instantToCivil(start), instantToCivil(new Date(end.getTime() - 1))) === 0;
+  return sameDay
+    ? `${clock(start)} – ${clock(end)}`
+    : `${clock(start)} → ${formatDayLabel(end).split(",")[0]} ${clock(end)}`;
+}

@@ -15,19 +15,23 @@ export type AllowedSlot = BookableSlot & {
  * accept. Unlike `whyUnbookable`, this is about who is looking.
  *
  * `mine` must be counted the way the rules count it: the student's confirmed bookings
- * on this instrument that *start* in the week.
+ * on this instrument that *start* in the week. Hours count the timed windows only;
+ * whole-block windows have their own per-week count instead.
  */
 export function weeklyAllowance(args: {
   instrumentName: string;
   maxMinutesPerWeek: number | null;
+  windows: readonly WindowRule[];
   mine: readonly { windowId: string | null; start: Date; end: Date }[];
 }): {
   minutesLeft: number | null;
-  apply: (slots: readonly BookableSlot[], windows: readonly WindowRule[]) => AllowedSlot[];
+  apply: (slots: readonly BookableSlot[]) => AllowedSlot[];
   explain: (window: WindowRule) => Unbookable | null;
 } {
-  const { instrumentName, maxMinutesPerWeek: cap, mine } = args;
-  const used = mine.reduce((sum, b) => sum + (b.end.getTime() - b.start.getTime()) / 60_000, 0);
+  const { instrumentName, maxMinutesPerWeek: cap, windows, mine } = args;
+  const byId = new Map(windows.map((w) => [w.id, w]));
+  const counted = (windowId: string | null) => !(windowId && byId.get(windowId)?.wholeBlockOnly);
+  const used = mine.filter((b) => counted(b.windowId)).reduce((sum, b) => sum + (b.end.getTime() - b.start.getTime()) / 60_000, 0);
   const minutesLeft = cap === null ? null : Math.max(0, cap - used);
 
   const explain = (window: WindowRule): Unbookable | null => {
@@ -40,7 +44,7 @@ export function weeklyAllowance(args: {
         detail: `You already have ${taken} ${window.name} booking${taken === 1 ? "" : "s"} this week, the most allowed.`,
       };
     }
-    if (cap !== null && minutesLeft! < window.minDurationMinutes) {
+    if (cap !== null && !window.wholeBlockOnly && minutesLeft! < window.minDurationMinutes) {
       return {
         kind: "weekly-limit",
         label: "Over your limit",
@@ -55,12 +59,11 @@ export function weeklyAllowance(args: {
     return null;
   };
 
-  const apply = (slots: readonly BookableSlot[], windows: readonly WindowRule[]): AllowedSlot[] => {
-    const byId = new Map(windows.map((w) => [w.id, w]));
-    return slots.flatMap((slot) => {
+  const apply = (slots: readonly BookableSlot[]): AllowedSlot[] =>
+    slots.flatMap((slot) => {
       const window = byId.get(slot.windowId);
       if (window && explain(window)) return [];
-      if (minutesLeft === null) return [slot];
+      if (minutesLeft === null || !counted(slot.windowId)) return [slot];
 
       const durations = slot.durations.filter((d) => d <= minutesLeft);
       if (durations.length === 0) return [];
@@ -73,7 +76,6 @@ export function weeklyAllowance(args: {
         },
       ];
     });
-  };
 
   return { minutesLeft, apply, explain };
 }

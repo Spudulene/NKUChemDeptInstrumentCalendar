@@ -109,6 +109,7 @@ export default async function InstrumentPage({
   const allowance = weeklyAllowance({
     instrumentName: instrument.name,
     maxMinutesPerWeek: instrument.maxMinutesPerUserPerWeek,
+    windows: instrument.windows,
     mine: mineThisWeek.map((b) => ({ windowId: b.windowId, start: b.startsAt, end: b.endsAt })),
   });
 
@@ -121,7 +122,7 @@ export default async function InstrumentPage({
         earliest: new Date(Math.max(rangeStart.getTime(), rules.earliest.getTime())),
       })
     : [];
-  const slots = allowance.apply(openToAll, instrument.windows);
+  const slots = allowance.apply(openToAll);
   const explain: typeof explainForAll = canBook
     ? (gap, window) => explainForAll(gap, window) ?? allowance.explain(window)
     : explainForAll;
@@ -232,7 +233,11 @@ export default async function InstrumentPage({
           ? [
               {
                 label: "Hours this week",
-                used: mineThisWeek.reduce((sum, b) => sum + (b.endsAt.getTime() - b.startsAt.getTime()) / 60_000, 0) / 60,
+                // Whole-block windows have their own count above, not hours.
+                used:
+                  mineThisWeek
+                    .filter((b) => !instrument.windows.some((w) => w.wholeBlockOnly && w.id === b.windowId))
+                    .reduce((sum, b) => sum + (b.endsAt.getTime() - b.startsAt.getTime()) / 60_000, 0) / 60,
                 cap: instrument.maxMinutesPerUserPerWeek / 60,
                 unit: " h",
               },
@@ -241,6 +246,7 @@ export default async function InstrumentPage({
       ]
     : [];
   const upcomingMine = mine.filter((b) => b.endsAt > now);
+  const blockNames = instrument.windows.filter((w) => w.wholeBlockOnly).map((w) => w.name);
 
   const weekHref = (start: typeof weekStart) => `/instruments/${slug}?week=${civilToISODate(start)}`;
   const navButton = buttonClass({ variant: "secondary", size: "icon" });
@@ -458,7 +464,10 @@ export default async function InstrumentPage({
                 <li>{formatDurationMinutes(instrument.bufferMinutes)} changeover between bookings</li>
               )}
               {instrument.maxMinutesPerUserPerWeek && (
-                <li>Up to {formatDurationMinutes(instrument.maxMinutesPerUserPerWeek)} per student per week</li>
+                <li>
+                  Up to {formatDurationMinutes(instrument.maxMinutesPerUserPerWeek)} per student per week
+                  {blockNames.length > 0 && `, not counting ${blockNames.join(" or ")} blocks`}
+                </li>
               )}
               <li>Class and maintenance blocks take priority</li>
             </ul>

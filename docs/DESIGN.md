@@ -11,7 +11,7 @@ like it belongs.
 | Week schedule                    | `src/app/(site)/instruments/[slug]/page.tsx` |
 | Book time (dialog)               | `src/components/booking-dialog.tsx`        |
 | Reserve for a class (instructor) | `src/app/(site)/classes/page.tsx`          |
-| Shared header                    | `src/components/app-header.tsx`            |
+| Shared header                    | `src/components/app-header.tsx`; its avatar opens `account-menu.tsx` (identity, research group, appearance, sign out) on desktop and phone |
 | Phone · Book time                | the booking dialog, as a bottom sheet under 640px |
 | Phone · Day schedule             | `src/components/day-agenda.tsx`, under 640px on the instrument page and the embed |
 | Phone · Instruments              | not built yet                              |

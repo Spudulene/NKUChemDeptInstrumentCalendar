@@ -40,7 +40,8 @@ export type AgendaItem =
   | ({
       kind: "open";
       key: string;
-      free: string;
+      /** "Open · 9 hours free", or "Open tonight" for a whole overnight block. */
+      headline: string;
       windowName: string;
       /** Every start the viewer could book in this gap; empty where no one can book here. */
       starts: BookableSlot[];
@@ -56,13 +57,29 @@ export type AgendaDay = {
   /** "Monday, Oct 26" */
   title: string;
   isToday: boolean;
-  /** The windows that open on this day, e.g. "Daytime 08:00–17:00". */
+  /** The timed windows that open on this day, e.g. "Daytime 08:00–17:00". */
   windows: string[];
   /** Something is still bookable: open time no one can book doesn't count. */
   hasOpen: boolean;
   /** The viewer has a booking starting this day. */
   hasMine: boolean;
+  /** Open and taken time in the day's timed windows. */
   items: AgendaItem[];
+  /**
+   * Whole-block windows (overnight) opening this day, each in its own section as in
+   * the artboard: one block is one booking, so it reads apart from the timed list.
+   */
+  blocks: AgendaBlock[];
+};
+
+export type AgendaBlock = {
+  key: string;
+  name: string;
+  /** "17:00 → 08:00 next day" */
+  hours: string;
+  items: AgendaItem[];
+  /** What to say when there's nothing to list: the block is past or under way. */
+  empty: string;
 };
 
 /**
@@ -107,7 +124,7 @@ export function buildAgenda(args: {
       (o) => civilToISODate(o.date) === day.key,
     );
 
-    const open: AgendaItem[] = todays.flatMap((o) => {
+    const openIn = (o: WindowOccurrence): AgendaItem[] => {
       const gaps = subtractIntervals({ start: o.start, end: o.end }, busy)
         .map((g) => ({ start: g.start < now ? now : g.start, end: g.end }))
         .filter((g) => g.end > g.start);
@@ -132,14 +149,19 @@ export function buildAgenda(args: {
         return {
           kind: "open" as const,
           key: `open-${g.start.getTime()}`,
-          free: `${formatDurationMinutes(Math.round((g.end.getTime() - g.start.getTime()) / MINUTE_MS))} free`,
+          // A block is all or nothing, so how much of it is free says nothing.
+          headline: o.window.wholeBlockOnly
+            ? instantToMinutes(g.start) >= 12 * 60
+              ? "Open tonight"
+              : "Open"
+            : `Open · ${formatDurationMinutes(Math.round((g.end.getTime() - g.start.getTime()) / MINUTE_MS))} free`,
           windowName: o.window.name,
           starts,
           ...(unbookable && { unbookable }),
           ...clock(g.start, g.end),
         };
       });
-    });
+    };
 
     const taken: AgendaItem[] = bookings
       .filter((b) => startsToday(b.start))
@@ -151,6 +173,27 @@ export function buildAgenda(args: {
         tone: b.tone,
         ...clock(b.start, b.end),
       }));
+
+    // Whatever starts inside a block opening today belongs to that block's section.
+    const timed = todays.filter((o) => !o.window.wholeBlockOnly);
+    const wholeBlocks = todays.filter((o) => o.window.wholeBlockOnly);
+    const inBlock = (item: AgendaItem, o: WindowOccurrence) =>
+      item.at >= o.start.getTime() && item.at < o.end.getTime();
+    const blocks: AgendaBlock[] = wholeBlocks.map((o) => {
+      const c = clock(o.start, o.end);
+      return {
+        key: `${o.window.id}-${o.start.getTime()}`,
+        name: o.window.name,
+        hours: `${c.start} → ${c.end}${c.endsNextDay ? " next day" : ""}`,
+        items: [...openIn(o), ...taken.filter((t) => inBlock(t, o))].sort((a, b) => a.at - b.at),
+        empty: o.end <= now ? "This block has passed." : "Already under way. Blocks are booked from their start.",
+      };
+    });
+    const items = [
+      ...timed.flatMap(openIn),
+      ...taken.filter((t) => !wholeBlocks.some((o) => inBlock(t, o))),
+    ].sort((a, b) => a.at - b.at);
+    const everything = [...items, ...blocks.flatMap((b) => b.items)];
 
     return {
       key: day.key,
@@ -165,13 +208,14 @@ export function buildAgenda(args: {
         timeZone: "UTC",
       }),
       isToday: day.isToday,
-      windows: todays.map((o) => {
+      windows: timed.map((o) => {
         const c = clock(o.start, o.end);
         return `${o.window.name} ${c.start}–${c.end}${c.endsNextDay ? " next day" : ""}`;
       }),
-      hasOpen: open.some((o) => o.kind === "open" && !o.unbookable),
+      hasOpen: everything.some((o) => o.kind === "open" && !o.unbookable),
       hasMine: taken.some((t) => t.kind === "taken" && t.tone === "mine"),
-      items: [...open, ...taken].sort((a, b) => a.at - b.at),
+      items,
+      blocks,
     };
   });
 }

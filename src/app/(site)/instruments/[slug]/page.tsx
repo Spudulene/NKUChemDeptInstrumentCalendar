@@ -245,8 +245,18 @@ export default async function InstrumentPage({
   const weekHref = (start: typeof weekStart) => `/instruments/${slug}?week=${civilToISODate(start)}`;
   const navButton = buttonClass({ variant: "secondary", size: "icon" });
 
+  // The student's main action: book the soonest open slot, or go to the week with one.
+  const bookAction = (className: string) =>
+    firstSlot ? (
+      <BookTimeButton slot={firstSlot} className={className} />
+    ) : nextOpening ? (
+      <Link href={weekHref(sundayOf(instantToCivil(nextOpening.start)))} className={className}>
+        Next open: {formatRange(nextOpening.start, nextOpening.end).split(" – ")[0]}
+      </Link>
+    ) : null;
+
   const page = (
-    <div>
+    <div className={canBook ? "pb-24 sm:pb-0" : undefined}>
       <nav aria-label="Breadcrumb" className="text-sm text-ink-3">
         <Link href="/" className="font-semibold text-ink-2">
           Instruments
@@ -260,7 +270,8 @@ export default async function InstrumentPage({
       </nav>
 
       {allInstruments.length > 1 && (
-        <nav aria-label="Switch instrument" className="mt-4 flex flex-wrap gap-2">
+        // One scrolling row on phones, so the schedule starts higher up.
+        <nav aria-label="Switch instrument" className="mt-4 flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
           {allInstruments.map((other) => {
             const current = other.slug === slug;
             return (
@@ -269,7 +280,7 @@ export default async function InstrumentPage({
                 href={`/instruments/${other.slug}${isThisWeek ? "" : `?week=${civilToISODate(weekStart)}`}`}
                 aria-current={current ? "page" : undefined}
                 style={{ "--inst": other.color } as CSSProperties}
-                className={`inline-flex min-h-10 items-center gap-2 rounded-full px-3.5 text-sm font-semibold no-underline ${
+                className={`inline-flex min-h-10 flex-none items-center gap-2 rounded-full px-3.5 text-sm font-semibold whitespace-nowrap no-underline ${
                   current ? "bg-ink text-bg" : "bg-surface text-ink-2 shadow-[inset_0_0_0_1px_var(--ui-border)] hover:text-ink"
                 }`}
               >
@@ -281,12 +292,17 @@ export default async function InstrumentPage({
         </nav>
       )}
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-4">
-          <InstrumentTile name={instrument.name} color={instrument.color} size="lg" />
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-4 sm:mt-5">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+          <span className="sm:hidden">
+            <InstrumentTile name={instrument.name} color={instrument.color} size="md" />
+          </span>
+          <span className="hidden sm:block">
+            <InstrumentTile name={instrument.name} color={instrument.color} size="lg" />
+          </span>
           <div className="min-w-0">
-            <h1 className="text-[32px] leading-tight font-extrabold tracking-[-0.02em]">{instrument.name}</h1>
-            <p className="mt-1 text-[15px] text-ink-2">
+            <h1 className="text-2xl leading-tight font-extrabold tracking-[-0.02em] sm:text-[32px]">{instrument.name}</h1>
+            <p className="mt-0.5 text-sm text-ink-2 sm:mt-1 sm:text-[15px]">
               {[instrument.location, instrument.requireResearchAdvisor && "Research group required"]
                 .filter(Boolean)
                 .join(" · ")}
@@ -295,13 +311,8 @@ export default async function InstrumentPage({
         </div>
 
         {canBook ? (
-          firstSlot ? (
-            <BookTimeButton slot={firstSlot} className={buttonClass({ size: "lg" })} />
-          ) : nextOpening ? (
-            <ButtonLink size="lg" href={weekHref(sundayOf(instantToCivil(nextOpening.start)))}>
-              Next open: {formatRange(nextOpening.start, nextOpening.end).split(" – ")[0]}
-            </ButtonLink>
-          ) : null
+          // On phones this moves to the bar along the bottom of the screen.
+          <div className="hidden sm:block">{bookAction(buttonClass({ size: "lg" }))}</div>
         ) : isStaff ? (
           <ButtonLink size="lg" href={`/classes?instrument=${slug}`}>
             Reserve for a class
@@ -352,7 +363,11 @@ export default async function InstrumentPage({
           )}
 
           <div className="sm:hidden">
-            <DayAgenda days={agenda} initialKey={initialDay.key} />
+            <DayAgenda
+              days={agenda}
+              initialKey={initialDay.key}
+              usage={usage.map((u) => `${u.label}: ${Number(u.used.toFixed(1))} of ${u.cap}${u.unit}`).join(" · ")}
+            />
           </div>
           <div className="hidden sm:block">
             <WeekGrid view={view} />
@@ -473,6 +488,13 @@ export default async function InstrumentPage({
             </p>
           </details>
         </Card>
+      )}
+
+      {/* "Phone · Day schedule": the main action stays in reach while scrolling a day. */}
+      {canBook && (firstSlot || nextOpening) && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface px-4 pt-3 pb-[max(1.375rem,env(safe-area-inset-bottom))] sm:hidden">
+          {bookAction(`${buttonClass({ size: "lg" })} w-full`)}
+        </div>
       )}
     </div>
   );

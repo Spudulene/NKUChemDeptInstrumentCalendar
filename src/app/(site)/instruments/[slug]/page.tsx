@@ -277,7 +277,7 @@ export default async function InstrumentPage({
 
       {allInstruments.length > 1 && (
         // One scrolling row on phones, so the schedule starts higher up.
-        <nav aria-label="Switch instrument" className="mt-4 flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+        <nav aria-label="Switch instrument" className="mt-4 flex gap-2 overflow-x-auto [scrollbar-width:none] sm:flex-wrap sm:overflow-visible">
           {allInstruments.map((other) => {
             const current = other.slug === slug;
             return (

@@ -1,5 +1,5 @@
 import type { BookableSlot } from "@/lib/booking/slots";
-import type { Unbookable } from "@/lib/booking/unbookable";
+import { limitBands, type BookingLimits, type Unbookable } from "@/lib/booking/unbookable";
 import {
   expandWindows,
   normalizedEndMinute,
@@ -57,6 +57,9 @@ export type GridBlock = ScheduleBooking & {
 
 export type GridBand = { key: string; start: Date; end: Date };
 
+/** Time inside a window that the clock rules out (past, too soon, not open yet). */
+export type GridShade = GridBand & { why: Unbookable };
+
 /** A start time the viewer can click, with its labels formatted on the server. */
 export type GridSlot = { slot: BookableSlot; time: string; when: string };
 
@@ -81,6 +84,8 @@ export type ScheduleView = {
   endMinute: number;
   /** Visible time no timed window covers — greyed out, so open time reads as open. */
   closed: GridBand[];
+  /** Open-looking time no one can book; shaded so only bookable time looks open. */
+  shaded: GridShade[];
   blocks: GridBlock[];
   slots: GridSlot[];
   rows: BlockRow[];
@@ -96,8 +101,10 @@ export function buildScheduleView(args: {
   slots: BookableSlot[];
   /** Explains open time no one can book; see `whyUnbookable`. */
   explain?: (gap: Interval, window: WindowRule) => Unbookable | null;
+  /** The clock limits on booking; without them nothing is shaded. */
+  limits?: BookingLimits;
 }): ScheduleView {
-  const { weekStart, today, windows, bookings, slots, explain } = args;
+  const { weekStart, today, windows, bookings, slots, explain, limits } = args;
   const weekEnd = addCivilDays(weekStart, 7);
 
   // A day early, so a window that opened Saturday night still reaches Sunday.
@@ -191,11 +198,18 @@ export function buildScheduleView(args: {
     })),
   );
 
+  const shaded: GridShade[] = limits
+    ? timed.flatMap((o) =>
+        limitBands(o, limits).map((band) => ({ key: `${band.why.kind}-${band.start.getTime()}`, ...band })),
+      )
+    : [];
+
   return {
     days,
     startMinute: start,
     endMinute: end,
     closed,
+    shaded,
     blocks,
     slots: slots
       .filter((s) => !s.wholeBlock)

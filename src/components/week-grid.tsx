@@ -8,6 +8,7 @@ import type {
   GridBand,
   GridBlock,
   GridDay,
+  GridShade,
   GridSlot,
   ScheduleTone,
   ScheduleView,
@@ -101,6 +102,7 @@ export function WeekGrid({ view }: { view: ScheduleView }) {
                 height={height}
                 hourPx={hourPx}
                 closed={view.closed}
+                shaded={view.shaded}
                 blocks={view.blocks}
                 slots={booking ? view.slots : []}
                 onSelect={booking?.select}
@@ -122,6 +124,7 @@ function DayColumn({
   height,
   hourPx,
   closed,
+  shaded,
   blocks,
   slots,
   onSelect,
@@ -130,6 +133,7 @@ function DayColumn({
   height: number;
   hourPx: number;
   closed: GridBand[];
+  shaded: GridShade[];
   blocks: GridBlock[];
   slots: GridSlot[];
   onSelect?: (slot: GridSlot["slot"]) => void;
@@ -168,6 +172,32 @@ function DayColumn({
             className="absolute inset-x-0 bg-sunken/80"
             style={{ top: pos.top, height: pos.height }}
           />
+        );
+      })}
+
+      {/* Lighter than closed hours: inside a window, but ruled out by the clock. Past
+          time is only shaded; the others say why, briefly here and in full on hover. */}
+      {shaded.map((band) => {
+        const pos = place(band.start, band.end);
+        if (!pos) return null;
+        const past = band.why.kind === "past";
+        return (
+          <div
+            key={band.key}
+            aria-hidden={past || undefined}
+            title={band.why.detail}
+            className="absolute inset-x-0 overflow-hidden bg-sunken/50"
+            style={{ top: pos.top, height: pos.height }}
+          >
+            {!past && (
+              <>
+                <span aria-hidden="true" className="block truncate px-2 pt-1 text-[11px] font-semibold text-ink-3">
+                  {pos.height >= 20 && band.why.label}
+                </span>
+                <span className="sr-only">{band.why.detail}</span>
+              </>
+            )}
+          </div>
         );
       })}
 

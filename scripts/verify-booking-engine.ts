@@ -17,6 +17,7 @@ import {
 import { computeOpenings, findOpenings } from "@/lib/booking/availability";
 import { computeBookableSlots } from "@/lib/booking/slots";
 import { horizonEnd, opensForBooking } from "@/lib/booking/horizon";
+import { limitBands } from "@/lib/booking/unbookable";
 import { validateBooking } from "@/lib/booking/rules";
 import { deliverPreemptionNotices } from "@/lib/email";
 import {
@@ -198,6 +199,47 @@ async function main() {
   check(
     "nothing on the day after is offered",
     horizonSlots.every((s) => s.start < horizonLimit),
+  );
+
+  // Shading on the week grid: now is Tue Oct 27 10:00, lead time 24 h, horizon 21 days.
+  const bandNow = civilToInstant(horizonFrom, hm(10));
+  const bandLimits = {
+    now: bandNow,
+    earliest: new Date(bandNow.getTime() + 24 * 60 * MIN),
+    latest: horizonEnd(bandNow, 21),
+    leadMinutes: 1440,
+    horizonDays: 21,
+  };
+  const day = (d: CivilDate, from: number, to: number) => ({ start: civilToInstant(d, from), end: civilToInstant(d, to) });
+  const describe = (span: { start: Date; end: Date }) =>
+    limitBands(span, bandLimits)
+      .map((b) => `${b.why.kind} ${b.start.toISOString()}-${b.end.toISOString()}`)
+      .join(", ");
+  const todayBands = limitBands(day(horizonFrom, hm(8), hm(17)), bandLimits);
+  check(
+    "today splits at now: past until 10:00, too soon after",
+    todayBands.length === 2 &&
+      todayBands[0].why.kind === "past" && todayBands[0].end.getTime() === bandNow.getTime() &&
+      todayBands[1].why.kind === "too-soon" && todayBands[1].end.getTime() === civilToInstant(horizonFrom, hm(17)).getTime(),
+    describe(day(horizonFrom, hm(8), hm(17))),
+  );
+  const tomorrow = addCivilDays(horizonFrom, 1);
+  const tomorrowBands = limitBands(day(tomorrow, hm(8), hm(17)), bandLimits);
+  check(
+    "tomorrow is too soon only until the lead time runs out (10:00)",
+    tomorrowBands.length === 1 && tomorrowBands[0].why.kind === "too-soon" &&
+      tomorrowBands[0].end.getTime() === civilToInstant(tomorrow, hm(10)).getTime(),
+    describe(day(tomorrow, hm(8), hm(17))),
+  );
+  check(
+    "a day inside the horizon and past the lead time is not shaded",
+    limitBands(day({ y: 2026, m: 11, d: 17 }, hm(8), hm(17)), bandLimits).length === 0,
+  );
+  const lateBands = limitBands(day({ y: 2026, m: 11, d: 18 }, hm(8), hm(17)), bandLimits);
+  check(
+    "the day after the horizon is shaded whole, with its own opening date",
+    lateBands.length === 1 && lateBands[0].why.kind === "not-open" && lateBands[0].why.label === "Opens Oct 28",
+    describe(day({ y: 2026, m: 11, d: 18 }, hm(8), hm(17))),
   );
 
   // -------------------------------------------------------------------------

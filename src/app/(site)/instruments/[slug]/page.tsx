@@ -93,7 +93,7 @@ export default async function InstrumentPage({
 
   // Open time that no one can book says why, for every viewer: the rules are the same
   // for all students, so this isn't about who is looking.
-  const { rules, explain } = instrumentRules({
+  const { rules, limits, explain } = instrumentRules({
     instrument,
     busy: bookings.map((b) => ({ start: b.startsAt, end: b.endsAt })),
     from: rangeStart,
@@ -150,6 +150,7 @@ export default async function InstrumentPage({
     bookings: scheduleBookings,
     slots,
     explain,
+    limits,
   });
 
   // Phones get the day-at-a-time list instead of the seven-column grid ("Phone · Day

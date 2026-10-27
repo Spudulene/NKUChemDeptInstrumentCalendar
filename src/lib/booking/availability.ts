@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { horizonEnd } from "@/lib/booking/horizon";
 import { addCivilDays, instantToCivil } from "@/lib/time";
 import {
   expandWindows,
@@ -146,7 +147,7 @@ export async function findOpenings(args: {
   if (!instrument || !instrument.isActive) return [];
 
   const horizonDays = args.horizonDays ?? instrument.bookingHorizonDays;
-  const to = new Date(from.getTime() + horizonDays * 86_400_000);
+  const to = horizonEnd(from, horizonDays);
 
   const earliest = new Date(
     Math.max(from.getTime(), Date.now() + instrument.minLeadTimeMinutes * 60_000),

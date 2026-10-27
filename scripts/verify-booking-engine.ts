@@ -4,6 +4,7 @@ import {
   addCivilDays,
   civilToInstant,
   civilWeekday,
+  compareCivil,
   instantToCivil,
   todayCivil,
   type CivilDate,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/booking/windows";
 import { computeOpenings, findOpenings } from "@/lib/booking/availability";
 import { computeBookableSlots } from "@/lib/booking/slots";
+import { horizonEnd, opensForBooking } from "@/lib/booking/horizon";
 import { validateBooking } from "@/lib/booking/rules";
 import { deliverPreemptionNotices } from "@/lib/email";
 import {
@@ -153,6 +155,49 @@ async function main() {
         timeZone: "America/New_York",
         hour: "numeric",
       }) === "8 AM",
+  );
+
+  // -------------------------------------------------------------------------
+  section("Booking horizon (whole days)");
+  // -------------------------------------------------------------------------
+
+  // 21 days from Tue Oct 27 2026 crosses the Nov 1 fall-back.
+  const horizonFrom = { y: 2026, m: 10, d: 27 };
+  const horizonLimit = horizonEnd(civilToInstant(horizonFrom, hm(18)), 21);
+  check(
+    "the horizon ends at campus midnight after today + N, across fall-back",
+    horizonLimit.getTime() === civilToInstant({ y: 2026, m: 11, d: 18 }, 0).getTime() &&
+      horizonLimit.toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric" }) ===
+        "12 AM",
+    horizonLimit.toISOString(),
+  );
+  check(
+    "the horizon moves by whole days, not with the clock (00:05 and 23:55 agree)",
+    horizonEnd(civilToInstant(horizonFrom, hm(0, 5)), 21).getTime() ===
+      horizonEnd(civilToInstant(horizonFrom, hm(23, 55)), 21).getTime(),
+  );
+  check(
+    "a day opens for booking N calendar days before it",
+    JSON.stringify(opensForBooking({ y: 2026, m: 11, d: 17 }, 21)) === JSON.stringify(horizonFrom),
+  );
+
+  const horizonSlots = computeBookableSlots({
+    windows: [daytime],
+    busy: [],
+    from: civilToInstant({ y: 2026, m: 11, d: 17 }, 0),
+    to: civilToInstant({ y: 2026, m: 11, d: 19 }, 0),
+    earliest: civilToInstant(horizonFrom, hm(18)),
+    latest: horizonLimit,
+  });
+  const lastDayStarts = horizonSlots.filter((s) => compareCivil(instantToCivil(s.start), { y: 2026, m: 11, d: 17 }) === 0);
+  check(
+    "the whole last day is offered, to its final 16:30 start",
+    lastDayStarts.length === 18 && lastDayStarts.at(-1)?.start.getTime() === civilToInstant({ y: 2026, m: 11, d: 17 }, hm(16, 30)).getTime(),
+    `${lastDayStarts.length} start(s)`,
+  );
+  check(
+    "nothing on the day after is offered",
+    horizonSlots.every((s) => s.start < horizonLimit),
   );
 
   // -------------------------------------------------------------------------
@@ -507,6 +552,14 @@ async function main() {
     ["09:10 is off the 30-minute grid", civilToInstant(addCivilDays(monday, 7), hm(9, 10)), civilToInstant(addCivilDays(monday, 7), hm(10, 10)), "OFF_GRID"],
     ["a booking spanning the day/overnight boundary is rejected", civilToInstant(addCivilDays(monday, 7), hm(16)), civilToInstant(addCivilDays(monday, 7), hm(18)), "OUTSIDE_WINDOW"],
   ];
+
+  // The fixture's horizon is 60 days: a Monday inside it passes, one past it doesn't.
+  const lastMonday = nextWeekday(addCivilDays(todayCivil(), 54), "MON");
+  const pastMonday = nextWeekday(addCivilDays(todayCivil(), 61), "MON");
+  cases.push(
+    ["a Monday within the 60-day horizon passes", civilToInstant(lastMonday, hm(10)), civilToInstant(lastMonday, hm(11)), null],
+    ["a Monday past the 60-day horizon is rejected", civilToInstant(pastMonday, hm(10)), civilToInstant(pastMonday, hm(11)), "BEYOND_HORIZON"],
+  );
 
   for (const [label, start, end, expected] of cases) {
     const result = validateBooking({

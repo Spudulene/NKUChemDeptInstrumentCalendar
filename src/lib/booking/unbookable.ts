@@ -1,6 +1,7 @@
+import { horizonEnd, opensForBooking } from "@/lib/booking/horizon";
 import { computeBookableSlots } from "@/lib/booking/slots";
 import type { Interval, WindowRule } from "@/lib/booking/windows";
-import { formatDayLabel, formatDurationMinutes, instantToMinutes, minutesToClock } from "@/lib/time";
+import { civilToInstant, formatDayLabel, formatDurationMinutes, instantToCivil } from "@/lib/time";
 
 /** Why open time can't be booked: a short label for tight cells, and a sentence. */
 export type Unbookable = { label: string; detail: string };
@@ -17,11 +18,11 @@ export type SlotRules = Parameters<typeof computeBookableSlots>[0];
  * gap is bookable, or when nothing explains it.
  */
 export function whyUnbookable(
-  rules: SlotRules & { now: Date; leadMinutes: number },
+  rules: SlotRules & { now: Date; leadMinutes: number; horizonDays: number },
   gap: Interval,
   window: WindowRule,
 ): Unbookable | null {
-  const { now, leadMinutes, latest, bufferMinutes = 0 } = rules;
+  const { now, leadMinutes, horizonDays, bufferMinutes = 0 } = rules;
 
   if (gap.end <= now) return { label: "Past", detail: "This time has passed." };
   if (gap.start < now && window.wholeBlockOnly) {
@@ -38,13 +39,12 @@ export function whyUnbookable(
   const farFuture = new Date(8.64e15);
   const beyondHorizon = startsIn({ latest: farFuture });
   if (beyondHorizon.length > 0) {
-    // The horizon rolls forward with the clock: a start becomes bookable once it is
-    // within the same distance of now that `latest` is.
-    const opensAt = new Date(beyondHorizon[0].start.getTime() - (latest.getTime() - now.getTime()));
-    const day = formatDayLabel(opensAt);
+    // Whole days open at midnight, so the start's own day decides when.
+    const opens = opensForBooking(instantToCivil(beyondHorizon[0].start), horizonDays);
+    const day = formatDayLabel(civilToInstant(opens, 0));
     return {
       label: `Opens ${day.split(", ")[1]}`,
-      detail: `Too far ahead to book yet. Opens for booking ${day} at ${minutesToClock(instantToMinutes(opensAt))}.`,
+      detail: `Too far ahead to book yet. Opens for booking on ${day}.`,
     };
   }
 
@@ -92,12 +92,21 @@ export function instrumentRules(args: {
     from,
     to,
     earliest: new Date(now.getTime() + instrument.minLeadTimeMinutes * 60_000),
-    latest: new Date(now.getTime() + instrument.bookingHorizonDays * 86_400_000),
+    latest: horizonEnd(now, instrument.bookingHorizonDays),
     bufferMinutes: instrument.bufferMinutes,
   };
   return {
     rules,
     explain: (gap, window) =>
-      whyUnbookable({ ...rules, now, leadMinutes: instrument.minLeadTimeMinutes }, gap, window),
+      whyUnbookable(
+        {
+          ...rules,
+          now,
+          leadMinutes: instrument.minLeadTimeMinutes,
+          horizonDays: instrument.bookingHorizonDays,
+        },
+        gap,
+        window,
+      ),
   };
 }

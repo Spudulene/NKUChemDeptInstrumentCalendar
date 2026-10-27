@@ -34,7 +34,7 @@ export function computeBookableSlots(args: {
   to: Date;
   /** Nothing starting before this is offered (lead time, or simply "now"). */
   earliest: Date;
-  /** Nothing starting after this is offered (booking horizon). */
+  /** Nothing starting at or after this is offered (the booking horizon; see `horizonEnd`). */
   latest: Date;
   bufferMinutes?: number;
 }): BookableSlot[] {
@@ -81,7 +81,7 @@ function slotsInOccurrence(
       (f) => f.start <= occurrence.start && f.end >= occurrence.end,
     );
 
-    if (!intact || occurrence.start < earliest || occurrence.start > latest) {
+    if (!intact || occurrence.start < earliest || occurrence.start >= latest) {
       return [];
     }
 
@@ -99,7 +99,7 @@ function slotsInOccurrence(
   const results: BookableSlot[] = [];
 
   for (const start of slotStarts(occurrence, window.minDurationMinutes)) {
-    if (start < earliest || start > latest) continue;
+    if (start < earliest || start >= latest) continue;
 
     const gap = free.find((f) => f.start <= start && f.end > start);
     if (!gap) continue;

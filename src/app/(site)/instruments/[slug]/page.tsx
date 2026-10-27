@@ -393,7 +393,7 @@ export default async function InstrumentPage({
               ))}
             </ul>
             <ul className="mt-4 flex flex-col gap-1.5 border-t border-line pt-3.5 text-[13px] text-ink-2">
-              <li>Bookings open {instrument.bookingHorizonDays} days ahead</li>
+              <li>Each day opens for booking {instrument.bookingHorizonDays} days ahead</li>
               {instrument.minLeadTimeMinutes > 0 && (
                 <li>Book at least {formatDurationMinutes(instrument.minLeadTimeMinutes)} ahead</li>
               )}

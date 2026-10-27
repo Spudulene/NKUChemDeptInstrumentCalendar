@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
-import type { BookableSlot } from "@/lib/booking/slots";
+import type { AllowedSlot } from "@/lib/booking/quota";
 import { BookingDialog, type AdvisorOption, type DialogInstrument } from "@/components/booking-dialog";
 
 type BookingContextValue = {
@@ -9,7 +9,7 @@ type BookingContextValue = {
    * Opens the dialog on `slot`. Pass `starts` (which includes `slot`) to let the student
    * pick among several start times, as the phone day list does for an open gap.
    */
-  select: (slot: BookableSlot, starts?: BookableSlot[]) => void;
+  select: (slot: AllowedSlot, starts?: AllowedSlot[]) => void;
 };
 
 const BookingContext = createContext<BookingContextValue | null>(null);
@@ -37,11 +37,11 @@ export function BookingProvider({
   timeZone: string;
   children: ReactNode;
 }) {
-  const [selected, setSelected] = useState<{ slot: BookableSlot; starts?: BookableSlot[] } | null>(
+  const [selected, setSelected] = useState<{ slot: AllowedSlot; starts?: AllowedSlot[] } | null>(
     null,
   );
   const select = useCallback(
-    (slot: BookableSlot, starts?: BookableSlot[]) => setSelected({ slot, starts }),
+    (slot: AllowedSlot, starts?: AllowedSlot[]) => setSelected({ slot, starts }),
     [],
   );
   const close = useCallback(() => setSelected(null), []);
@@ -71,7 +71,7 @@ export function useBooking(): BookingContextValue | null {
 }
 
 /** The header's "Book time": opens the dialog on the soonest bookable slot shown. */
-export function BookTimeButton({ slot, className }: { slot: BookableSlot; className: string }) {
+export function BookTimeButton({ slot, className }: { slot: AllowedSlot; className: string }) {
   const booking = useBooking();
   if (!booking) return null;
   return (

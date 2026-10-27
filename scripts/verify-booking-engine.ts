@@ -18,6 +18,7 @@ import { computeOpenings, findOpenings } from "@/lib/booking/availability";
 import { computeBookableSlots } from "@/lib/booking/slots";
 import { horizonEnd, opensForBooking } from "@/lib/booking/horizon";
 import { limitBands } from "@/lib/booking/unbookable";
+import { weeklyAllowance } from "@/lib/booking/quota";
 import { validateBooking } from "@/lib/booking/rules";
 import { deliverPreemptionNotices } from "@/lib/email";
 import {
@@ -400,6 +401,69 @@ async function main() {
     "any encroachment removes the overnight block entirely",
     overnightTaken.length === 0,
     `${overnightTaken.length} slot(s)`,
+  );
+
+  // -------------------------------------------------------------------------
+  section("Weekly caps offered to the UI");
+  // -------------------------------------------------------------------------
+
+  const capOvernight = { ...overnight, id: "on", name: "Overnight", daysOfWeek: ["MON"], maxBookingsPerUserPerWeek: 2 } as WindowRule;
+  const capSlots = [
+    ...wideOpen,
+    ...computeBookableSlots({
+      windows: [capOvernight],
+      busy: [],
+      from: civilToInstant(monday, 0),
+      to: civilToInstant(addCivilDays(monday, 2), 0),
+      earliest: civilToInstant(monday, 0),
+      latest: civilToInstant(addCivilDays(monday, 30), 0),
+    }),
+  ];
+  const capWindows = [gridWindow, capOvernight];
+  const booked = (windowId: string, hours: number) => ({
+    windowId,
+    start: civilToInstant(addCivilDays(monday, -1), hm(8)),
+    end: civilToInstant(addCivilDays(monday, -1), hm(8 + hours)),
+  });
+  const allowance = (maxMinutesPerWeek: number | null, mine: ReturnType<typeof booked>[]) =>
+    weeklyAllowance({ instrumentName: "Test NMR", maxMinutesPerWeek, mine });
+
+  check(
+    "with no caps, every slot is offered unchanged",
+    allowance(null, []).apply(capSlots, capWindows).length === capSlots.length,
+  );
+
+  const nearCap = allowance(480, [booked("grid", 7)]).apply(capSlots, capWindows);
+  check(
+    "an hour left of 8: lengths stop at 1 hour, with a note saying why",
+    nearCap.filter((s) => s.windowId === "grid").every((s) => Math.max(...s.durations) <= 60) &&
+      nearCap[0]?.durations.join(",") === "30,60" &&
+      !!nearCap[0]?.limitNote,
+    nearCap[0]?.durations.join(","),
+  );
+
+  const usedUp = allowance(480, [booked("grid", 8)]);
+  check(
+    "all 8 hours used: no daytime slots, and the reason is the weekly limit",
+    usedUp.apply(capSlots, capWindows).every((s) => s.windowId !== "grid") &&
+      usedUp.explain(gridWindow)?.kind === "weekly-limit",
+    usedUp.explain(gridWindow)?.detail,
+  );
+
+  const twoOvernights = allowance(null, [booked("on", 1), booked("on", 1)]);
+  check(
+    "two of two overnights booked: the overnight block isn't offered, and says why",
+    twoOvernights.apply(capSlots, capWindows).every((s) => s.windowId !== "on") &&
+      twoOvernights.explain(capOvernight)?.label === "Limit reached",
+    twoOvernights.explain(capOvernight)?.detail,
+  );
+
+  const blockTooLong = allowance(480, []);
+  check(
+    "a 15-hour block under an 8-hour weekly cap is never offered, and says so",
+    blockTooLong.apply(capSlots, capWindows).every((s) => s.windowId !== "on") &&
+      /longer than the 8 hours/.test(blockTooLong.explain(capOvernight)?.detail ?? ""),
+    blockTooLong.explain(capOvernight)?.detail,
   );
 
   // -------------------------------------------------------------------------

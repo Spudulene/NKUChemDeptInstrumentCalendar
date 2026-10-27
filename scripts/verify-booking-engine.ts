@@ -426,14 +426,14 @@ async function main() {
     end: civilToInstant(addCivilDays(monday, -1), hm(8 + hours)),
   });
   const allowance = (maxMinutesPerWeek: number | null, mine: ReturnType<typeof booked>[]) =>
-    weeklyAllowance({ instrumentName: "Test NMR", maxMinutesPerWeek, mine });
+    weeklyAllowance({ instrumentName: "Test NMR", maxMinutesPerWeek, windows: capWindows, mine });
 
   check(
     "with no caps, every slot is offered unchanged",
-    allowance(null, []).apply(capSlots, capWindows).length === capSlots.length,
+    allowance(null, []).apply(capSlots).length === capSlots.length,
   );
 
-  const nearCap = allowance(480, [booked("grid", 7)]).apply(capSlots, capWindows);
+  const nearCap = allowance(480, [booked("grid", 7)]).apply(capSlots);
   check(
     "an hour left of 8: lengths stop at 1 hour, with a note saying why",
     nearCap.filter((s) => s.windowId === "grid").every((s) => Math.max(...s.durations) <= 60) &&
@@ -445,7 +445,7 @@ async function main() {
   const usedUp = allowance(480, [booked("grid", 8)]);
   check(
     "all 8 hours used: no daytime slots, and the reason is the weekly limit",
-    usedUp.apply(capSlots, capWindows).every((s) => s.windowId !== "grid") &&
+    usedUp.apply(capSlots).every((s) => s.windowId !== "grid") &&
       usedUp.explain(gridWindow)?.kind === "weekly-limit",
     usedUp.explain(gridWindow)?.detail,
   );
@@ -453,17 +453,22 @@ async function main() {
   const twoOvernights = allowance(null, [booked("on", 1), booked("on", 1)]);
   check(
     "two of two overnights booked: the overnight block isn't offered, and says why",
-    twoOvernights.apply(capSlots, capWindows).every((s) => s.windowId !== "on") &&
+    twoOvernights.apply(capSlots).every((s) => s.windowId !== "on") &&
       twoOvernights.explain(capOvernight)?.label === "Limit reached",
     twoOvernights.explain(capOvernight)?.detail,
   );
 
-  const blockTooLong = allowance(480, []);
+  const hoursUsedUp = allowance(480, [booked("grid", 8)]);
   check(
-    "a 15-hour block under an 8-hour weekly cap is never offered, and says so",
-    blockTooLong.apply(capSlots, capWindows).every((s) => s.windowId !== "on") &&
-      /longer than the 8 hours/.test(blockTooLong.explain(capOvernight)?.detail ?? ""),
-    blockTooLong.explain(capOvernight)?.detail,
+    "overnight doesn't count toward the hour cap: offered with all 8 hours used",
+    hoursUsedUp.apply(capSlots).some((s) => s.windowId === "on") && hoursUsedUp.explain(capOvernight) === null,
+  );
+
+  const afterOvernight = allowance(480, [booked("on", 15)]).apply(capSlots);
+  check(
+    "a 15-hour overnight leaves the daytime hours untouched",
+    afterOvernight[0]?.durations.join(",") === "30,60,90,120" && !afterOvernight[0]?.limitNote,
+    afterOvernight[0]?.durations.join(","),
   );
 
   // -------------------------------------------------------------------------
@@ -706,6 +711,57 @@ async function main() {
     "a partial overnight booking is rejected (whole block only)",
     !partialOvernight.ok && partialOvernight.failure.code === "WHOLE_BLOCK_ONLY",
     partialOvernight.ok ? "unexpectedly passed" : partialOvernight.failure.code,
+  );
+
+  // An 8-hour weekly cap counts daytime hours only; overnight has its own count.
+  const capped = { ...ctx, instrument: { ...instrument, maxMinutesPerUserPerWeek: 480 } };
+  const dayWindowId = instrument.windows.find((w) => !w.wholeBlockOnly)!.id;
+  const nightWindowId = instrument.windows.find((w) => w.wholeBlockOnly)!.id;
+  const earlier = (windowId: string, hours: number, i: number) => ({
+    id: `earlier-${i}`,
+    userId: student.id,
+    windowId,
+    start: civilToInstant(addCivilDays(monday, 6), hm(1)),
+    end: civilToInstant(addCivilDays(monday, 6), hm(1 + hours)),
+  });
+  const overnightUnderCap = validateBooking({
+    ...capped,
+    request: { userId: student.id, start: overnightStart, end: overnightEnd, type: "STUDENT" },
+  });
+  check(
+    "a 15-hour overnight block passes an 8-hour weekly cap",
+    overnightUnderCap.ok,
+    overnightUnderCap.ok ? undefined : overnightUnderCap.failure.code,
+  );
+  const dayAfterNights = validateBooking({
+    ...capped,
+    userBookingsThisWeek: [earlier(nightWindowId, 15, 1), earlier(dayWindowId, 6, 2)],
+    request: {
+      userId: student.id,
+      start: civilToInstant(addCivilDays(monday, 7), hm(10)),
+      end: civilToInstant(addCivilDays(monday, 7), hm(12)),
+      type: "STUDENT",
+    },
+  });
+  check(
+    "with 6 daytime hours and an overnight booked, 2 more daytime hours still fit",
+    dayAfterNights.ok,
+    dayAfterNights.ok ? undefined : dayAfterNights.failure.code,
+  );
+  const dayOverCap = validateBooking({
+    ...capped,
+    userBookingsThisWeek: [earlier(dayWindowId, 7, 3)],
+    request: {
+      userId: student.id,
+      start: civilToInstant(addCivilDays(monday, 7), hm(10)),
+      end: civilToInstant(addCivilDays(monday, 7), hm(12)),
+      type: "STUDENT",
+    },
+  });
+  check(
+    "with 7 daytime hours booked, 2 more go over the 8-hour cap",
+    !dayOverCap.ok && dayOverCap.failure.code === "WEEKLY_QUOTA",
+    dayOverCap.ok ? "unexpectedly passed" : dayOverCap.failure.code,
   );
 
   // -------------------------------------------------------------------------

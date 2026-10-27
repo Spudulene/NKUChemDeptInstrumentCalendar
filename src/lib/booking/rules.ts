@@ -310,12 +310,19 @@ const underWindowWeeklyCap: Rule = (ctx) => {
       };
 };
 
+/**
+ * Hours are counted across the timed windows only. A whole-block window (overnight) is
+ * capped by its own per-week count instead: a 15-hour block would otherwise outweigh
+ * a typical weekly limit on its own and could never be booked.
+ */
 const underWeeklyMinuteCap: Rule = (ctx) => {
   const cap = ctx.instrument.maxMinutesPerUserPerWeek;
-  if (!cap) return null;
+  if (!cap || ctx.occurrence?.window.wholeBlockOnly) return null;
 
+  const wholeBlock = new Set(ctx.windows.filter((w) => w.wholeBlockOnly).map((w) => w.id));
   const used = ctx.userBookingsThisWeek
     .filter((b) => b.id !== ctx.request.excludeBookingId)
+    .filter((b) => !(b.windowId && wholeBlock.has(b.windowId)))
     .reduce((sum, b) => sum + (b.end.getTime() - b.start.getTime()) / MINUTE_MS, 0);
 
   return used + durationMinutes(ctx) <= cap

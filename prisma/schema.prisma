@@ -116,7 +116,9 @@ model Instrument {
   /// Dead time enforced between consecutive bookings (sample changeover, reshimming).
   bufferMinutes Int @default(0)
 
-  /// Cap across all windows, per campus calendar week (Sun–Sat). Null = uncapped.
+  /// Cap across the timed windows, per campus calendar week (Sun–Sat). Null = uncapped.
+  /// Whole-block windows (overnight) don't count toward it; their
+  /// `maxBookingsPerUserPerWeek` caps them instead.
   maxMinutesPerUserPerWeek Int?
 
   /// Require students to name a research advisor when booking. Per-instrument rather

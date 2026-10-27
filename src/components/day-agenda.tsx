@@ -128,10 +128,17 @@ export function DayAgenda({
 
                 {item.kind === "open" ? (
                   <div className="box-border flex min-h-[52px] items-center justify-between gap-2.5 rounded-xl border-[1.5px] border-dashed border-line-2 py-2 pr-2 pl-3.5 text-ink-2">
-                    <span className="text-sm font-semibold">
-                      Open · {item.free}
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold">
+                        Open · {item.free}
+                      </span>
+                      {item.unbookable && (
+                        <span className="mt-0.5 block text-[13px] leading-snug text-ink-3">
+                          {item.unbookable.detail}
+                        </span>
+                      )}
                     </span>
-                    {embedSlug ? (
+                    {item.unbookable ? null : embedSlug ? (
                       <a
                         href={`/instruments/${embedSlug}?week=${day.key}`}
                         target="_blank"

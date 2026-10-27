@@ -17,6 +17,7 @@ import {
   todayCivil,
 } from "@/lib/time";
 import { computeBookableSlots } from "@/lib/booking/slots";
+import { whyUnbookable, type SlotRules } from "@/lib/booking/unbookable";
 import { findOpenings } from "@/lib/booking/availability";
 import { expandWindows, windowSpanMinutes } from "@/lib/booking/windows";
 import { buildAgenda } from "@/lib/agenda";
@@ -90,19 +91,25 @@ export default async function InstrumentPage({
   const canBook = user?.role === "STUDENT";
   const isStaff = user?.role === "INSTRUCTOR" || user?.role === "ADMIN";
 
+  const rules: SlotRules = {
+    windows: instrument.windows,
+    busy: bookings.map((b) => ({ start: b.startsAt, end: b.endsAt })),
+    from: rangeStart,
+    to: rangeEnd,
+    earliest: new Date(now.getTime() + instrument.minLeadTimeMinutes * 60_000),
+    latest: new Date(now.getTime() + instrument.bookingHorizonDays * 86_400_000),
+    bufferMinutes: instrument.bufferMinutes,
+  };
   const slots = canBook
     ? computeBookableSlots({
-        windows: instrument.windows,
-        busy: bookings.map((b) => ({ start: b.startsAt, end: b.endsAt })),
-        from: rangeStart,
-        to: rangeEnd,
-        earliest: new Date(
-          Math.max(rangeStart.getTime(), now.getTime() + instrument.minLeadTimeMinutes * 60_000),
-        ),
-        latest: new Date(now.getTime() + instrument.bookingHorizonDays * 86_400_000),
-        bufferMinutes: instrument.bufferMinutes,
+        ...rules,
+        earliest: new Date(Math.max(rangeStart.getTime(), rules.earliest.getTime())),
       })
     : [];
+  // Open time that no one can book says why, for every viewer: the rules are the same
+  // for all students, so this isn't about who is looking.
+  const explain: Parameters<typeof buildAgenda>[0]["explain"] = (gap, window) =>
+    whyUnbookable({ ...rules, now, leadMinutes: instrument.minLeadTimeMinutes }, gap, window);
 
   const scheduleBookings: ScheduleBooking[] = bookings.map((booking) => {
     const mine = user?.id === booking.user.id;
@@ -146,6 +153,7 @@ export default async function InstrumentPage({
     windows: instrument.windows,
     bookings: scheduleBookings,
     slots,
+    explain,
   });
 
   // Phones get the day-at-a-time list instead of the seven-column grid ("Phone · Day
@@ -156,6 +164,7 @@ export default async function InstrumentPage({
     occurrences: expandWindows(instrument.windows, addCivilDays(weekStart, -1), weekEnd),
     bookings: scheduleBookings,
     slots,
+    explain,
     now,
   });
   const initialDay =

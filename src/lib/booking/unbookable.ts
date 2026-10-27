@@ -64,3 +64,40 @@ export function whyUnbookable(
 
   return null;
 }
+
+/** The parts of an instrument the slot rules read. */
+type InstrumentRules = {
+  windows: readonly WindowRule[];
+  minLeadTimeMinutes: number;
+  bookingHorizonDays: number;
+  bufferMinutes: number;
+};
+
+/**
+ * One instrument's slot rules as of `now` over [from, to), and `whyUnbookable` bound to
+ * them in the shape the schedule builders take. Shared by the instrument page and the
+ * embed, so both explain open time the same way.
+ */
+export function instrumentRules(args: {
+  instrument: InstrumentRules;
+  busy: readonly Interval[];
+  from: Date;
+  to: Date;
+  now: Date;
+}): { rules: SlotRules; explain: (gap: Interval, window: WindowRule) => Unbookable | null } {
+  const { instrument, busy, from, to, now } = args;
+  const rules: SlotRules = {
+    windows: instrument.windows,
+    busy,
+    from,
+    to,
+    earliest: new Date(now.getTime() + instrument.minLeadTimeMinutes * 60_000),
+    latest: new Date(now.getTime() + instrument.bookingHorizonDays * 86_400_000),
+    bufferMinutes: instrument.bufferMinutes,
+  };
+  return {
+    rules,
+    explain: (gap, window) =>
+      whyUnbookable({ ...rules, now, leadMinutes: instrument.minLeadTimeMinutes }, gap, window),
+  };
+}

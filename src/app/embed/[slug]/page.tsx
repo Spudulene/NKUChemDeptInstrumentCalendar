@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { instrumentRules } from "@/lib/booking/unbookable";
 import { expandWindows } from "@/lib/booking/windows";
 import {
   addCivilDays,
@@ -104,10 +105,28 @@ export default async function EmbedPage({
     tone: b.type === "MAINTENANCE" ? "maintenance" : b.type === "CLASS" ? "class" : "student",
   }));
 
+  // Open time no one can book says why instead of offering a Book link that leads
+  // nowhere. The rules are the same for every student, so nothing here is personal.
+  const now = new Date();
+  const { explain } = instrumentRules({
+    instrument,
+    busy: blocks,
+    from: rangeStart,
+    to: rangeEnd,
+    now,
+  });
+
   // The same grid the app uses, minus anything clickable.
   const weekView =
     view === "week"
-      ? buildScheduleView({ weekStart: gridStart, today, windows: instrument.windows, bookings: blocks, slots: [] })
+      ? buildScheduleView({
+          weekStart: gridStart,
+          today,
+          windows: instrument.windows,
+          bookings: blocks,
+          slots: [],
+          explain,
+        })
       : null;
 
   // A day early, so an overnight window opening Saturday still shades Sunday morning.
@@ -121,7 +140,8 @@ export default async function EmbedPage({
           days,
           occurrences,
           bookings: blocks,
-          now: new Date(),
+          explain,
+          now,
         })
       : [];
   // The requested date (e.g. tapped in month view) or today, else the first day with room.

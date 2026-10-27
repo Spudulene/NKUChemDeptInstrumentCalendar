@@ -108,7 +108,7 @@ export default async function EmbedPage({
   // Open time no one can book says why instead of offering a Book link that leads
   // nowhere. The rules are the same for every student, so nothing here is personal.
   const now = new Date();
-  const { explain } = instrumentRules({
+  const { limits, explain } = instrumentRules({
     instrument,
     busy: blocks,
     from: rangeStart,
@@ -126,6 +126,7 @@ export default async function EmbedPage({
           bookings: blocks,
           slots: [],
           explain,
+          limits,
         })
       : null;
 

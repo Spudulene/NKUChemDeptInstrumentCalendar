@@ -12,7 +12,7 @@ import {
 
 /** Why open time can't be booked: a short label for tight cells, and a sentence. */
 export type Unbookable = {
-  kind: "past" | "started" | "too-soon" | "not-open" | "changeover";
+  kind: "past" | "started" | "too-soon" | "not-open" | "changeover" | "weekly-limit";
   label: string;
   detail: string;
 };
@@ -60,8 +60,8 @@ export type BookingLimits = {
 
 /**
  * Explains open time that no student can book, so the schedule doesn't show "Open"
- * with no way in. These rules are the same for everyone (weekly caps are per-student
- * and checked on submit), so the answer holds whoever is looking.
+ * with no way in. These rules are the same for everyone (weekly caps are per-student;
+ * see `weeklyAllowance`), so the answer holds whoever is looking.
  *
  * Works by relaxing the slot rules one at a time, cumulatively, until the gap yields a
  * start: the first rule whose removal frees it is the reason. Returns null when the

@@ -5,7 +5,7 @@ import {
   createBookingAction,
   type ActionState,
 } from "@/app/(site)/instruments/[slug]/actions";
-import type { BookableSlot } from "@/lib/booking/slots";
+import type { AllowedSlot } from "@/lib/booking/quota";
 import { Button, Field, InstrumentTile, Notice, Segmented, fieldClass, textareaClass } from "@/components/ui";
 
 export type AdvisorOption = { id: string; name: string };
@@ -33,9 +33,9 @@ export function BookingDialog({
   onClose,
 }: {
   instrument: DialogInstrument;
-  slot: BookableSlot;
+  slot: AllowedSlot;
   /** Other starts the student may switch to (the "Phone · Book time" sheet's Start). */
-  starts?: BookableSlot[];
+  starts?: AllowedSlot[];
   windowSummary: string;
   advisors: AdvisorOption[];
   defaultAdvisorId: string | null;
@@ -183,6 +183,7 @@ export function BookingDialog({
                 <p className="text-sm text-ink-2">Booked as one whole block ({lengthLabel(duration)}).</p>
               )
             )}
+            {slot.limitNote && <p className="-mt-2 text-[13px] text-ink-3">{slot.limitNote}</p>}
 
             {advisors.length > 0 && (
               <Field

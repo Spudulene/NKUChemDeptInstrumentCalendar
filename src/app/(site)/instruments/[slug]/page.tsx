@@ -16,6 +16,7 @@ import {
   parseISODate,
   todayCivil,
 } from "@/lib/time";
+import { weeklyAllowance } from "@/lib/booking/quota";
 import { computeBookableSlots } from "@/lib/booking/slots";
 import { instrumentRules } from "@/lib/booking/unbookable";
 import { findOpenings } from "@/lib/booking/availability";
@@ -28,7 +29,7 @@ import { BookingProvider, BookTimeButton } from "@/components/booking-provider";
 import { CancelBookingButton } from "@/components/cancel-booking-button";
 import { DayAgenda } from "@/components/day-agenda";
 import { WeekGrid } from "@/components/week-grid";
-import { ButtonLink, Card, InstrumentTile, buttonClass } from "@/components/ui";
+import { ButtonLink, Card, InstrumentTile, Notice, buttonClass } from "@/components/ui";
 
 /**
  * One instrument's week, from the "Week schedule" artboard: who has what, the rules,
@@ -93,18 +94,47 @@ export default async function InstrumentPage({
 
   // Open time that no one can book says why, for every viewer: the rules are the same
   // for all students, so this isn't about who is looking.
-  const { rules, limits, explain } = instrumentRules({
+  const { rules, limits, explain: explainForAll } = instrumentRules({
     instrument,
     busy: bookings.map((b) => ({ start: b.startsAt, end: b.endsAt })),
     from: rangeStart,
     to: rangeEnd,
     now,
   });
-  const slots = canBook
+
+  // The signed-in student's own week. The weekly caps count bookings that start in it,
+  // so an overnight carried over from last Saturday doesn't.
+  const mine = user ? bookings.filter((b) => b.user.id === user.id) : [];
+  const mineThisWeek = mine.filter((b) => b.startsAt >= rangeStart);
+  const allowance = weeklyAllowance({
+    instrumentName: instrument.name,
+    maxMinutesPerWeek: instrument.maxMinutesPerUserPerWeek,
+    mine: mineThisWeek.map((b) => ({ windowId: b.windowId, start: b.startsAt, end: b.endsAt })),
+  });
+
+  // Only what this student's caps allow is offered, so nothing they pick gets refused
+  // for a limit on submit. Time the caps rule out says so, after the reasons that hold
+  // for everyone.
+  const openToAll = canBook
     ? computeBookableSlots({
         ...rules,
         earliest: new Date(Math.max(rangeStart.getTime(), rules.earliest.getTime())),
       })
+    : [];
+  const slots = allowance.apply(openToAll, instrument.windows);
+  const explain: typeof explainForAll = canBook
+    ? (gap, window) => explainForAll(gap, window) ?? allowance.explain(window)
+    : explainForAll;
+  // Timed windows in the grid have no cell to say this in, so it goes above the grid.
+  const limitNotices = canBook
+    ? [
+        ...new Set(
+          instrument.windows
+            .filter((w) => !w.wholeBlockOnly)
+            .map((w) => allowance.explain(w)?.detail)
+            .filter((detail): detail is string => !!detail),
+        ),
+      ]
     : [];
 
   const scheduleBookings: ScheduleBooking[] = bookings.map((booking) => {
@@ -168,8 +198,10 @@ export default async function InstrumentPage({
     agenda.find((d) => d.isToday) ?? agenda.find((d) => d.hasOpen) ?? agenda[0];
 
   // "Book time" opens the soonest slot in view; with none this week, it points at the
-  // week holding the next opening instead.
+  // week holding the next opening instead. If this week has openings the student's
+  // limits rule out, that's after this week, when the limits reset.
   const firstSlot = slots.find((s) => s.start > now) ?? null;
+  const cappedOut = openToAll.some((s) => s.start > now);
   const shortest = Math.min(
     ...instrument.windows.map((w) => (w.wholeBlockOnly ? windowSpanMinutes(w) : w.minDurationMinutes)),
   );
@@ -179,20 +211,20 @@ export default async function InstrumentPage({
           await findOpenings({
             instrumentId: instrument.id,
             durationMinutes: Number.isFinite(shortest) ? shortest : 60,
+            ...(cappedOut && { from: rangeEnd }),
             limit: 1,
           })
         )[0]
       : undefined;
 
-  // The signed-in student's own week: what they've booked and how much of each cap.
-  const mine = user ? bookings.filter((b) => b.user.id === user.id) : [];
+  // How much of each cap the student has used.
   const usage = canBook
     ? [
         ...instrument.windows
           .filter((w) => w.maxBookingsPerUserPerWeek)
           .map((w) => ({
             label: `${w.name} bookings`,
-            used: mine.filter((b) => b.windowId === w.id).length,
+            used: mineThisWeek.filter((b) => b.windowId === w.id).length,
             cap: w.maxBookingsPerUserPerWeek!,
             unit: "",
           })),
@@ -200,7 +232,7 @@ export default async function InstrumentPage({
           ? [
               {
                 label: "Hours this week",
-                used: mine.reduce((sum, b) => sum + (b.endsAt.getTime() - b.startsAt.getTime()) / 60_000, 0) / 60,
+                used: mineThisWeek.reduce((sum, b) => sum + (b.endsAt.getTime() - b.startsAt.getTime()) / 60_000, 0) / 60,
                 cap: instrument.maxMinutesPerUserPerWeek / 60,
                 unit: " h",
               },
@@ -310,6 +342,14 @@ export default async function InstrumentPage({
               <Swatch className="bg-sunken">Not bookable</Swatch>
             </ul>
           </div>
+
+          {limitNotices.length > 0 && (
+            <Notice tone="info" title="Weekly limit" className="mb-3">
+              {limitNotices.map((detail) => (
+                <p key={detail}>{detail}</p>
+              ))}
+            </Notice>
+          )}
 
           <div className="sm:hidden">
             <DayAgenda days={agenda} initialKey={initialDay.key} />

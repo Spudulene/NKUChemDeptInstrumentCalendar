@@ -1,8 +1,9 @@
 import type { BookingType, Role } from "@/generated/prisma/enums";
 import type { InstrumentModel } from "@/generated/prisma/models";
+import { horizonEnd } from "@/lib/booking/horizon";
 import {
+  formatDayLabel,
   formatDurationMinutes,
-  formatInstant,
   formatRange,
   formatTimeOnly,
 } from "@/lib/time";
@@ -141,14 +142,13 @@ const doesNotOverlapConfirmed: Rule = (ctx) => {
 // ---------------------------------------------------------------------------
 
 const withinBookingHorizon: Rule = (ctx) => {
-  const horizonMs = ctx.instrument.bookingHorizonDays * 86_400_000;
-  const limit = new Date(ctx.now.getTime() + horizonMs);
+  const limit = horizonEnd(ctx.now, ctx.instrument.bookingHorizonDays);
 
-  return ctx.request.start <= limit
+  return ctx.request.start < limit
     ? null
     : {
         code: "BEYOND_HORIZON",
-        message: `Bookings open ${ctx.instrument.bookingHorizonDays} days ahead — the latest you can book right now is ${formatInstant(limit)}.`,
+        message: `Each day opens for booking ${ctx.instrument.bookingHorizonDays} days ahead — right now you can book up to the end of ${formatDayLabel(new Date(limit.getTime() - 1))}.`,
       };
 };
 

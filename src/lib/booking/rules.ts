@@ -403,6 +403,47 @@ export function validateBooking(
   return { ok: true, occurrence };
 }
 
+/** The rules that depend only on the shape of the windows, not on time or other people. */
+const WINDOW_SHAPE_RULES: readonly Rule[] = [
+  withinOperatingWindow,
+  respectsWholeBlock,
+  durationWithinBounds,
+  respectsSlotGrid,
+  respectsConsecutiveSlotCap,
+];
+
+/**
+ * Whether an existing student booking would still be accepted by these windows.
+ * Used after an admin edits them: bookings made under the old rules stand, but the
+ * admin is shown which ones no longer fit. Horizon, notice and caps are left out —
+ * those only ever apply at the moment of booking.
+ */
+export function windowShapeFailure(args: {
+  instrument: InstrumentPolicy;
+  windows: readonly WindowRule[];
+  start: Date;
+  end: Date;
+  userId: string;
+}): RuleResult {
+  const occurrence = findContainingOccurrence(args.windows, args.start, args.end);
+  const ctx: RuleContext = {
+    instrument: args.instrument,
+    windows: args.windows,
+    request: { userId: args.userId, start: args.start, end: args.end, type: "STUDENT" },
+    actor: { id: args.userId, role: "STUDENT" },
+    now: args.start,
+    neighbors: [],
+    userBookingsThisWeek: [],
+    occurrence,
+  };
+
+  for (const rule of WINDOW_SHAPE_RULES) {
+    const failure = rule(ctx);
+    if (failure) return failure;
+  }
+  return null;
+}
+
 /**
  * Captured onto the booking at creation time. Without it, an admin narrowing a
  * window retroactively invalidates existing bookings and every later check has to

@@ -18,11 +18,12 @@ function initials(name: string): string {
 }
 
 /**
- * Links appear only for screens the viewer can use. "My bookings" and "Admin" from
- * the design join this list once those pages exist.
+ * Links appear only for screens the viewer can use. "Admin" from the design joins
+ * this list once that page exists.
  */
 function navFor(user: SessionUser | null): NavItem[] {
   const items: NavItem[] = [{ href: "/", label: "Instruments" }];
+  if (user?.role === "STUDENT") items.push({ href: "/my-bookings", label: "My bookings" });
   if (user?.role === "INSTRUCTOR" || user?.role === "ADMIN") {
     items.push({ href: "/classes", label: "Class reservations" });
   }

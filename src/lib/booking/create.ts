@@ -65,7 +65,7 @@ export class BookingError extends Error {
  * insert. Prisma has no dedicated error code for exclusion constraints, so the pg
  * code is matched directly — it is the only reliable signal available.
  */
-function isOverlapViolation(error: unknown): boolean {
+export function isOverlapViolation(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
 
   const messages = [error.message];
@@ -275,6 +275,30 @@ export async function previewPreemption(args: {
 }): Promise<PreemptionPreview> {
   const { instrumentId, start, end, type, now = new Date() } = args;
 
+  const conflicts = await loadConflicts({
+    instrumentId,
+    start,
+    end,
+    now,
+    excludeBookingId: args.excludeBookingId,
+  });
+
+  return classifyConflicts(conflicts, type);
+}
+
+/**
+ * Every confirmed booking overlapping [start, end), shaped for a preview. A series
+ * loads its whole span once and then classifies each meeting's slice of it.
+ */
+export async function loadConflicts(args: {
+  instrumentId: string;
+  start: Date;
+  end: Date;
+  now: Date;
+  excludeBookingId?: string;
+}): Promise<PreemptionTarget[]> {
+  const { instrumentId, start, end, now } = args;
+
   const conflicts = await db.booking.findMany({
     where: {
       instrumentId,
@@ -292,7 +316,7 @@ export async function previewPreemption(args: {
 
   const shortNoticeCutoff = new Date(now.getTime() + SHORT_NOTICE_MINUTES * MINUTE_MS);
 
-  const mapped: PreemptionTarget[] = conflicts.map((b) => ({
+  return conflicts.map((b) => ({
     id: b.id,
     userId: b.userId,
     userName: b.user.name,
@@ -304,7 +328,13 @@ export async function previewPreemption(args: {
     inProgress: b.startsAt <= now && b.endsAt > now,
     startsSoon: b.startsAt > now && b.startsAt <= shortNoticeCutoff,
   }));
+}
 
+/** Sort overlapping bookings into what gets bumped, what blocks, and what to warn about. */
+export function classifyConflicts(
+  mapped: readonly PreemptionTarget[],
+  type: BookingType,
+): PreemptionPreview {
   const blockedBy = mapped.filter((t) => TIER[t.type] >= TIER[type]);
   const preemptable = mapped.filter((t) => TIER[t.type] < TIER[type]);
   const inProgress = preemptable.filter((t) => t.inProgress);

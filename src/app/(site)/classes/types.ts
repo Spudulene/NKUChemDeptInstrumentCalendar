@@ -40,3 +40,29 @@ export function previewKey(fields: {
 }): string {
   return [fields.instrumentId, fields.date, fields.from, fields.to].join("|");
 }
+
+/** One meeting of a weekly series, with who it would affect. */
+export type SeriesPreviewDate = {
+  /** YYYY-MM-DD, the id the form uses to skip it. */
+  date: string;
+  /** "Tue, Nov 3" */
+  label: string;
+  targets: ClassPreviewRow[];
+  inProgress: ClassPreviewRow[];
+  blockedBy: ClassPreviewRow[];
+};
+
+export type SeriesPreviewResponse =
+  | { ok: true; key: string; asOf: string; dates: SeriesPreviewDate[] }
+  | { ok: false; key: string; error: string };
+
+export function seriesKey(fields: {
+  instrumentId: string;
+  first: string;
+  until: string;
+  days: string;
+  from: string;
+  to: string;
+}): string {
+  return [fields.instrumentId, fields.first, fields.until, fields.days, fields.from, fields.to].join("|");
+}

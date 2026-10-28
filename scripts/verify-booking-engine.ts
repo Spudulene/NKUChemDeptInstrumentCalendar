@@ -6,6 +6,7 @@ import {
   civilWeekday,
   compareCivil,
   instantToCivil,
+  instantToMinutes,
   todayCivil,
   type CivilDate,
 } from "@/lib/time";
@@ -27,6 +28,13 @@ import {
   createStudentBooking,
   previewPreemption,
 } from "@/lib/booking/create";
+import {
+  cancelSeries,
+  createClassSeries,
+  expandSeries,
+  patternProblem,
+  previewSeries,
+} from "@/lib/booking/series";
 
 /**
  * End-to-end checks against a real Postgres. The exclusion constraint, DST-correct
@@ -514,6 +522,7 @@ async function main() {
   });
 
   await db.booking.deleteMany({ where: { instrumentId: instrument.id } });
+  await db.reservationSeries.deleteMany({ where: { instrumentId: instrument.id } });
 
   const student = await db.user.upsert({
     where: { email: "verify-student@nku.edu" },
@@ -1057,7 +1066,189 @@ async function main() {
   );
 
   // -------------------------------------------------------------------------
+  section("Recurring class reservations");
+  // -------------------------------------------------------------------------
+
+  // Pure expansion first: fixed dates either side of the November 2026 DST change.
+  const longAgo = new Date(Date.UTC(2026, 0, 1));
+  const acrossDst = expandSeries(
+    {
+      firstDay: { y: 2026, m: 10, d: 26 },
+      lastDay: { y: 2026, m: 11, d: 6 },
+      days: ["TUE", "THU"],
+      fromMinute: hm(13),
+      toMinute: hm(15),
+    },
+    longAgo,
+  );
+  check(
+    "a series produces one meeting per chosen weekday in the range",
+    acrossDst.length === 4 &&
+      acrossDst.every((m) => ["TUE", "THU"].includes(civilWeekday(m.day))),
+    `${acrossDst.length} meeting(s)`,
+  );
+  check(
+    "meetings keep their wall-clock times across a DST change",
+    acrossDst.every(
+      (m) =>
+        instantToMinutes(m.start) === hm(13) &&
+        m.end.getTime() - m.start.getTime() === 120 * MIN,
+    ),
+  );
+
+  const lateNight = expandSeries(
+    {
+      firstDay: { y: 2026, m: 10, d: 26 },
+      lastDay: { y: 2026, m: 10, d: 26 },
+      days: ["MON"],
+      fromMinute: hm(22),
+      toMinute: hm(2),
+    },
+    longAgo,
+  );
+  check(
+    "a To at or before From runs each meeting past midnight",
+    lateNight.length === 1 &&
+      lateNight[0].end.getTime() - lateNight[0].start.getTime() === 240 * MIN &&
+      compareCivil(instantToCivil(lateNight[0].end), { y: 2026, m: 10, d: 27 }) === 0,
+  );
+
+  const firstDay = addCivilDays(monday, 21);
+  const pattern = {
+    firstDay,
+    lastDay: addCivilDays(firstDay, 13),
+    days: ["TUE", "THU"] as ("TUE" | "THU")[],
+    fromMinute: hm(13),
+    toMinute: hm(15),
+  };
+  check(
+    "a pattern with no days, a backwards range, or over 26 weeks is refused",
+    patternProblem({ ...pattern, days: [] }) !== null &&
+      patternProblem({ ...pattern, lastDay: addCivilDays(firstDay, -1) }) !== null &&
+      patternProblem({ ...pattern, lastDay: addCivilDays(firstDay, 26 * 7) }) !== null &&
+      patternProblem(pattern) === null,
+  );
+
+  const meetings = expandSeries(pattern, new Date());
+  const [tue, thu] = meetings;
+  const bumpedByClass = await createStudentBooking({
+    instrumentId: instrument.id,
+    request: {
+      userId: student.id,
+      start: civilToInstant(tue.day, hm(13, 30)),
+      end: civilToInstant(tue.day, hm(14, 30)),
+      type: "STUDENT",
+    },
+    actor: { id: student.id, role: "STUDENT" },
+  });
+  const otherClass = await createPriorityBooking({
+    instrumentId: instrument.id,
+    request: {
+      userId: instructor.id,
+      start: civilToInstant(thu.day, hm(14)),
+      end: civilToInstant(thu.day, hm(16)),
+      type: "CLASS",
+      title: "CHE 210",
+      description: "Another section",
+    },
+    actor: { id: instructor.id, role: "INSTRUCTOR" },
+  });
+
+  const seriesPreview = await previewSeries({ instrumentId: instrument.id, meetings });
+  check(
+    "the series preview finds the student booking on one date and the other class on another",
+    seriesPreview.length === 4 &&
+      seriesPreview[0].targets.map((t) => t.id).join() === bumpedByClass.id &&
+      seriesPreview[1].blockedBy.map((t) => t.id).join() === otherClass.booking.id &&
+      seriesPreview.slice(2).every((p) => p.targets.length + p.blockedBy.length === 0),
+  );
+
+  const seriesArgs = {
+    instrumentId: instrument.id,
+    pattern,
+    title: "CHE 310",
+    description: "CHE 310 — weekly lab",
+    actor: { id: instructor.id, role: "INSTRUCTOR" as const },
+    notify: false,
+  };
+  const codeOf = async (run: () => Promise<unknown>) => {
+    try {
+      await run();
+      return "ok";
+    } catch (error) {
+      return error instanceof BookingError ? error.failure.code : String(error);
+    }
+  };
+
+  check(
+    "keeping a date another class holds refuses the whole series",
+    (await codeOf(() =>
+      createClassSeries({
+        ...seriesArgs,
+        dates: meetings.map((m) => m.date),
+        confirmedTargetIds: [bumpedByClass.id],
+      }),
+    )) === "PRIORITY_CONFLICT" &&
+      (await db.reservationSeries.count({ where: { instrumentId: instrument.id } })) === 0,
+  );
+
+  const keptDates = meetings.filter((m) => m !== thu).map((m) => m.date);
+  check(
+    "a series won't cancel a booking the instructor wasn't shown",
+    (await codeOf(() =>
+      createClassSeries({ ...seriesArgs, dates: keptDates, confirmedTargetIds: [] }),
+    )) === "CONFIRMATION_REQUIRED" &&
+      (await db.booking.findUniqueOrThrow({ where: { id: bumpedByClass.id } })).status ===
+        "CONFIRMED",
+  );
+
+  const created = await createClassSeries({
+    ...seriesArgs,
+    dates: keptDates,
+    confirmedTargetIds: [bumpedByClass.id],
+  });
+  const seriesMeetings = await db.booking.findMany({
+    where: { seriesId: created.seriesId },
+    orderBy: { startsAt: "asc" },
+  });
+  const bumpedRow = await db.booking.findUniqueOrThrow({ where: { id: bumpedByClass.id } });
+  check(
+    "the kept dates become CLASS bookings in the series; the skipped date has none",
+    seriesMeetings.length === 3 &&
+      seriesMeetings.every((b) => b.type === "CLASS" && b.status === "CONFIRMED") &&
+      !seriesMeetings.some((b) => b.startsAt.getTime() === thu.start.getTime()),
+    `${seriesMeetings.length} meeting(s)`,
+  );
+  check(
+    "the bumped student booking points at the meeting on its own date",
+    bumpedRow.status === "PREEMPTED" && bumpedRow.preemptedByBookingId === seriesMeetings[0].id,
+  );
+
+  check(
+    "only the owner or an admin can cancel a series",
+    (await codeOf(() =>
+      cancelSeries({
+        seriesId: created.seriesId,
+        actor: { id: student.id, role: "STUDENT", name: student.name },
+      }),
+    )) === "NOT_OWNER",
+  );
+  const { cancelled } = await cancelSeries({
+    seriesId: created.seriesId,
+    actor: { id: instructor.id, role: "INSTRUCTOR", name: instructor.name },
+  });
+  check(
+    "cancelling a series cancels its remaining meetings and frees the time",
+    cancelled === 3 &&
+      (await db.booking.count({ where: { seriesId: created.seriesId, status: "CONFIRMED" } })) ===
+        0 &&
+      (await db.reservationSeries.findUniqueOrThrow({ where: { id: created.seriesId } }))
+        .cancelledAt !== null,
+  );
+
+  // -------------------------------------------------------------------------
   await db.booking.deleteMany({ where: { instrumentId: instrument.id } });
+  await db.reservationSeries.deleteMany({ where: { instrumentId: instrument.id } });
   await db.bookingWindow.deleteMany({ where: { instrumentId: instrument.id } });
   await db.instrument.delete({ where: { id: instrument.id } });
   await db.user.deleteMany({

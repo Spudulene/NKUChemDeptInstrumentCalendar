@@ -74,7 +74,7 @@ export function Card({
   children,
   ...props
 }: {
-  as?: "div" | "section" | "article" | "aside" | "li";
+  as?: "div" | "section" | "article" | "aside" | "li" | "ul";
   raised?: boolean;
   className?: string;
   children: ReactNode;

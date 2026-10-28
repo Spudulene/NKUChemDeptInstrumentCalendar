@@ -14,6 +14,7 @@ like it belongs.
 | Shared header                    | `src/components/app-header.tsx`; its avatar opens `account-menu.tsx` (identity, research group, appearance, sign out) on desktop and phone |
 | Phone · Book time                | the booking dialog, as a bottom sheet under 640px |
 | Phone · Day schedule             | `src/components/day-agenda.tsx`, under 640px on the instrument page and the embed |
+| My bookings (no artboard; composed from the home page's booking cards) | `src/app/(site)/my-bookings/page.tsx` |
 | Phone · Instruments              | not built yet                              |
 | Instrument settings (admin)      | not built yet                              |
 

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { findOpenings } from "@/lib/booking/availability";
@@ -84,9 +85,17 @@ export default async function HomePage() {
 
       {upcoming.length > 0 && (
         <section aria-labelledby="upcoming-h" className="mt-10">
-          <h2 id="upcoming-h" className="text-xl font-bold tracking-[-0.01em]">
-            Your upcoming bookings
-          </h2>
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <h2 id="upcoming-h" className="text-xl font-bold tracking-[-0.01em]">
+              Your upcoming bookings
+            </h2>
+            <Link
+              href="/my-bookings"
+              className="text-[15px] font-semibold decoration-gold decoration-2 underline-offset-4"
+            >
+              All my bookings
+            </Link>
+          </div>
           <ul className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3.5">
             {upcoming.map((b) => (
               <Card as="li" key={b.id} className="flex items-start gap-3.5 px-[18px] py-4">

@@ -29,6 +29,15 @@ import {
   previewPreemption,
 } from "@/lib/booking/create";
 import {
+  SettingsError,
+  bookingsOutsideRules,
+  normalizeWindow,
+  saveInstrumentSettings,
+  settingsProblem,
+  type InstrumentSettings,
+  type WindowSettings,
+} from "@/lib/admin/instrument-settings";
+import {
   cancelSeries,
   createClassSeries,
   expandSeries,
@@ -1245,6 +1254,138 @@ async function main() {
       (await db.reservationSeries.findUniqueOrThrow({ where: { id: created.seriesId } }))
         .cancelledAt !== null,
   );
+
+  // -------------------------------------------------------------------------
+  section("Instrument settings (admin)");
+  // -------------------------------------------------------------------------
+
+  const dayWin: WindowSettings = {
+    name: "Daytime",
+    daysOfWeek: ["MON", "TUE", "WED", "THU", "FRI"],
+    startMinute: hm(8),
+    endMinute: hm(17),
+    wholeBlockOnly: false,
+    slotSizeMinutes: 30,
+    minDurationMinutes: 30,
+    maxDurationMinutes: 120,
+    maxConsecutiveSlots: null,
+    maxBookingsPerUserPerWeek: null,
+  };
+  const nightWin: WindowSettings = {
+    ...dayWin,
+    name: "Overnight",
+    daysOfWeek: ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"],
+    startMinute: hm(17),
+    endMinute: hm(8),
+    wholeBlockOnly: true,
+    maxBookingsPerUserPerWeek: 1,
+  };
+  const settings: InstrumentSettings = {
+    name: "Verify Admin Fixture",
+    location: "",
+    description: "",
+    color: "#4338CA",
+    bookingHorizonDays: 60,
+    minLeadTimeMinutes: 0,
+    cancellationDeadlineMinutes: 0,
+    bufferMinutes: 0,
+    maxMinutesPerUserPerWeek: null,
+    requireResearchAdvisor: false,
+    windows: [dayWin, nightWin],
+  };
+
+  check(
+    "a whole-block window's durations follow from its times",
+    (() => {
+      const n = normalizeWindow(nightWin);
+      return n.minDurationMinutes === 900 && n.maxDurationMinutes === 900 && n.slotSizeMinutes === 900;
+    })(),
+  );
+  check("daytime and an overnight window that starts when it closes don't overlap", settingsProblem(settings) === null);
+  check(
+    "an overnight Saturday window overlapping Sunday morning is refused",
+    settingsProblem({
+      ...settings,
+      windows: [
+        nightWin,
+        { ...dayWin, name: "Weekend", daysOfWeek: ["SUN"], startMinute: hm(7), endMinute: hm(12) },
+      ],
+    })?.includes("overlap") === true,
+  );
+  check(
+    "a longest booking past the window's end is refused",
+    settingsProblem({ ...settings, windows: [{ ...dayWin, endMinute: hm(9) }] }) !== null,
+  );
+  check(
+    "two windows with the same name are refused",
+    settingsProblem({
+      ...settings,
+      windows: [dayWin, { ...dayWin, name: "daytime", daysOfWeek: ["SAT"] }],
+    }) !== null,
+  );
+
+  await db.instrument.deleteMany({ where: { name: settings.name } });
+  const adminFixture = await saveInstrumentSettings({ instrumentId: null, settings });
+  const savedWindows = await db.bookingWindow.findMany({
+    where: { instrumentId: adminFixture.id },
+    orderBy: { sortOrder: "asc" },
+  });
+  check(
+    "creating an instrument saves its windows in order, with a slug from its name",
+    adminFixture.slug === "verify-admin-fixture" &&
+      savedWindows.map((w) => w.name).join() === "Daytime,Overnight" &&
+      savedWindows[1].minDurationMinutes === 900,
+  );
+
+  check(
+    "a second instrument with the same name is refused",
+    await saveInstrumentSettings({ instrumentId: null, settings }).then(
+      () => false,
+      (error) => error instanceof SettingsError,
+    ),
+  );
+
+  const adminDay = nextWeekday(addCivilDays(todayCivil(), 2), "TUE");
+  const morning = await createStudentBooking({
+    instrumentId: adminFixture.id,
+    request: {
+      userId: student.id,
+      start: civilToInstant(adminDay, hm(9)),
+      end: civilToInstant(adminDay, hm(10)),
+      type: "STUDENT",
+    },
+    actor: { id: student.id, role: "STUDENT" },
+  });
+  check(
+    "bookings that still fit the windows aren't reported",
+    (await bookingsOutsideRules(adminFixture.id)).length === 0,
+  );
+
+  // The admin moves opening time to noon and drops the nightWin window.
+  await saveInstrumentSettings({
+    instrumentId: adminFixture.id,
+    settings: {
+      ...settings,
+      windows: [{ ...dayWin, id: savedWindows[0].id, startMinute: hm(12) }],
+    },
+  });
+  const misfits = await bookingsOutsideRules(adminFixture.id);
+  const afterEdit = await db.bookingWindow.findMany({ where: { instrumentId: adminFixture.id } });
+  check(
+    "after narrowing the hours, the morning booking stands but is reported",
+    misfits.map((m) => m.id).join() === morning.id &&
+      (await db.booking.findUniqueOrThrow({ where: { id: morning.id } })).status === "CONFIRMED",
+  );
+  check(
+    "a removed window is archived, not deleted; the edited one keeps its id",
+    afterEdit.length === 2 &&
+      afterEdit.find((w) => w.name === "Overnight")?.isActive === false &&
+      afterEdit.find((w) => w.id === savedWindows[0].id)?.startMinute === hm(12),
+  );
+
+  await db.booking.deleteMany({ where: { instrumentId: adminFixture.id } });
+  await db.bookingWindow.deleteMany({ where: { instrumentId: adminFixture.id } });
+  await db.instrument.delete({ where: { id: adminFixture.id } });
 
   // -------------------------------------------------------------------------
   await db.booking.deleteMany({ where: { instrumentId: instrument.id } });

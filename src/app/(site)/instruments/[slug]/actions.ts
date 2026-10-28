@@ -118,6 +118,7 @@ export async function cancelBookingAction(
   revalidatePath(`/instruments/${booking.instrument.slug}`);
   revalidatePath("/my-bookings");
   revalidatePath("/classes");
+  revalidatePath(`/admin/instruments/${booking.instrument.slug}`);
   revalidatePath("/");
   return { error: null, ok: true };
 }

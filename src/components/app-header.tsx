@@ -27,6 +27,7 @@ function navFor(user: SessionUser | null): NavItem[] {
   if (user?.role === "INSTRUCTOR" || user?.role === "ADMIN") {
     items.push({ href: "/classes", label: "Class reservations" });
   }
+  if (user?.role === "ADMIN") items.push({ href: "/admin", label: "Admin" });
   return items;
 }
 

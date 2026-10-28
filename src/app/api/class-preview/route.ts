@@ -4,12 +4,12 @@ import { db } from "@/lib/db";
 import { previewPreemption, type PreemptionTarget } from "@/lib/booking/create";
 import {
   compareCivil,
-  formatRange,
   formatTimeOnly,
   instantToCivil,
   instantToMinutes,
   minutesToClock,
 } from "@/lib/time";
+import { previewRow } from "@/app/(site)/classes/preview-rows";
 import { resolveClassTimes } from "@/app/(site)/classes/times";
 import {
   previewKey,
@@ -73,44 +73,17 @@ export async function GET(request: NextRequest) {
   });
 
   const toRow = (t: PreemptionTarget): ClassPreviewRow => {
-    const sameDay = (instant: Date) => compareCivil(instantToCivil(instant), times.day) === 0;
-    const clock = (instant: Date) => minutesToClock(instantToMinutes(instant));
-
-    const minutesUntil = Math.round((t.start.getTime() - now.getTime()) / 60_000);
-    const startsIn =
-      minutesUntil > 0 && minutesUntil < 24 * 60
-        ? `${Math.floor(minutesUntil / 60)} h ${minutesUntil % 60} min`
-        : null;
+    const row = previewRow(t, times.day, now);
 
     // Offer "start after it instead" only when that start still lands on the same day
     // and leaves some of the reservation. Rounded up to the form's half-hour grid.
-    let resumeFrom: string | null = null;
-    if (t.inProgress && sameDay(t.end)) {
+    if (t.inProgress && compareCivil(instantToCivil(t.end), times.day) === 0) {
       const rounded = Math.ceil(instantToMinutes(t.end) / SLOT_MINUTES) * SLOT_MINUTES;
       const stillShort = times.endsNextDay || rounded < times.toMinute;
-      if (rounded < 24 * 60 && stillShort) resumeFrom = minutesToClock(rounded);
+      if (rounded < 24 * 60 && stillShort) row.resumeFrom = minutesToClock(rounded);
     }
 
-    const parts = t.userName.trim().split(/\s+/);
-    const initials = (
-      parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : parts[0].slice(0, 2)
-    ).toUpperCase();
-
-    return {
-      id: t.id,
-      name: t.userName,
-      initials,
-      group: t.groupName,
-      time:
-        sameDay(t.start) && sameDay(t.end)
-          ? `${clock(t.start)} – ${clock(t.end)}`
-          : formatRange(t.start, t.end),
-      range: formatRange(t.start, t.end),
-      startsIn,
-      startsSoon: t.startsSoon,
-      resumeFrom,
-      type: t.type,
-    };
+    return row;
   };
 
   return NextResponse.json<ClassPreviewResponse>({

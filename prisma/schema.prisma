@@ -80,6 +80,7 @@ model User {
   bookings        Booking[] @relation("BookingOwner")
   createdBookings Booking[] @relation("BookingCreator")
   advisedBookings Booking[] @relation("BookingAdvisor")
+  reservationSeries ReservationSeries[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -128,6 +129,7 @@ model Instrument {
 
   windows  BookingWindow[]
   bookings Booking[]
+  series   ReservationSeries[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -230,6 +232,10 @@ model Booking {
   /// reason about "what were the rules in March".
   policySnapshot Json?
 
+  /// The recurring class reservation this meeting belongs to, if any.
+  seriesId String?
+  series   ReservationSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+
   // ---- Preemption trail ----
 
   preemptedByBookingId String?
@@ -251,6 +257,50 @@ model Booking {
   @@index([userId, startsAt])
   @@index([status, startsAt])
   @@index([preemptedByBookingId])
+  @@index([seriesId])
   // Usage-by-research-group reporting.
   @@index([advisorId, startsAt])
+}
+
+/// A class that meets on the same weekdays at the same times across a range of dates:
+/// a term's lab sections, or the summer faculty NMR blocks.
+///
+/// Each meeting is still its own CLASS booking, so preemption, the overlap constraint
+/// and the calendar treat it like any other. The series only records what was asked
+/// for and lets the instructor cancel what's left as one. Dates the instructor skipped
+/// (holidays, another class already there) simply have no booking.
+model ReservationSeries {
+  id String @id @default(cuid())
+
+  instrumentId String
+  instrument   Instrument @relation(fields: [instrumentId], references: [id], onDelete: Restrict)
+
+  /// The instructor or admin who reserved it, and owner of every meeting.
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  title       String
+  description String
+
+  daysOfWeek Weekday[]
+
+  /// Minutes from midnight, campus-local, as on BookingWindow: endMinute <= startMinute
+  /// means each meeting runs past midnight.
+  startMinute Int
+  endMinute   Int
+
+  /// Campus calendar dates, inclusive.
+  firstDate DateTime @db.Date
+  lastDate  DateTime @db.Date
+
+  /// Set when the instructor cancels the remaining meetings.
+  cancelledAt DateTime?
+
+  bookings Booking[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([instrumentId])
 }

@@ -11,10 +11,11 @@ const linkClass = (current: boolean) =>
     current ? "bg-surface font-bold text-ink shadow-[inset_0_0_0_1px_var(--ui-border)]" : "font-semibold text-ink-2 hover:text-ink"
   }`;
 
-/** The canvas also lists Maintenance and Usage reports here; they join when built. */
+/** The canvas also lists Usage reports here; it joins when built. */
 const DEPARTMENT = [
   { href: "/admin/instructors", label: "Instructors" },
   { href: "/admin/advisors", label: "Research advisors" },
+  { href: "/admin/maintenance", label: "Maintenance" },
 ];
 
 /** The admin sidebar from the canvas. Client-side only for `usePathname`. */

@@ -3,6 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { BookingError, createPriorityBooking } from "@/lib/booking/create";
+import { resolveMaintenanceTimes } from "@/lib/admin/maintenance";
+import { civilToISODate } from "@/lib/time";
+import { sundayOf } from "@/lib/week";
 import {
   SettingsError,
   instrumentSettingsSchema,
@@ -105,6 +110,75 @@ export async function removePersonAction(formData: FormData) {
   if (!isPeopleKind(kind)) return;
   await removePerson(kind, String(formData.get("userId") ?? ""));
   revalidatePath("/", "layout");
+}
+
+export type MaintenanceState = {
+  error: string | null;
+  /** True when the server's list of affected bookings differs from the one shown. */
+  stale?: boolean;
+  done?: { message: string; calendarHref: string };
+};
+
+/**
+ * Schedule the maintenance block the admin confirmed. `confirmedTargetIds` works as
+ * on class reservations: a booking made since the preview loaded sends the admin
+ * back to review rather than being cancelled unseen.
+ */
+export async function createMaintenanceAction(
+  _prev: MaintenanceState,
+  formData: FormData,
+): Promise<MaintenanceState> {
+  const user = await getSession();
+  if (user?.role !== "ADMIN") return { error: "Only admins can schedule maintenance." };
+
+  const instrumentId = String(formData.get("instrumentId") ?? "");
+  const startDate = String(formData.get("startDate") ?? "");
+  const reason = String(formData.get("reason") ?? "").trim();
+  const confirmedRaw = String(formData.get("confirmedTargetIds") ?? "");
+
+  const times = resolveMaintenanceTimes({
+    startDate,
+    startTime: String(formData.get("startTime") ?? ""),
+    endDate: String(formData.get("endDate") ?? ""),
+    endTime: String(formData.get("endTime") ?? ""),
+  });
+  if (!times) return { error: "Pick when it starts and ends." };
+  if (!reason) return { error: "Add a reason. Anyone whose booking is cancelled will see it." };
+
+  const instrument = await db.instrument.findUnique({ where: { id: instrumentId }, select: { slug: true } });
+  if (!instrument) return { error: "That instrument no longer exists." };
+
+  try {
+    const { preempted } = await createPriorityBooking({
+      instrumentId,
+      request: { userId: user.id, start: times.start, end: times.end, type: "MAINTENANCE", description: reason },
+      actor: { id: user.id, role: user.role },
+      confirmPreemption: true,
+      confirmedTargetIds: confirmedRaw ? confirmedRaw.split(",") : [],
+    });
+
+    revalidatePath(`/instruments/${instrument.slug}`);
+    revalidatePath("/admin/maintenance");
+
+    const n = preempted.length;
+    return {
+      error: null,
+      done: {
+        message:
+          n === 0
+            ? "Scheduled. No bookings were affected."
+            : `Scheduled. ${n} booking${n === 1 ? " was" : "s were"} cancelled, and ${n === 1 ? "its owner has" : "their owners have"} been emailed.`,
+        calendarHref: `/instruments/${instrument.slug}?week=${civilToISODate(sundayOf(times.day))}`,
+      },
+    };
+  } catch (error) {
+    if (error instanceof BookingError) {
+      const stale = ["CONFIRMATION_REQUIRED", "PRIORITY_CONFLICT", "IN_PROGRESS_CONFLICT"];
+      return { error: error.failure.message, stale: stale.includes(error.failure.code) };
+    }
+    console.error("[maintenance] unexpected failure:", error);
+    return { error: "Something went wrong scheduling that maintenance." };
+  }
 }
 
 /** Archive (true → false) or restore an instrument. */

@@ -16,7 +16,8 @@ like it belongs.
 | Phone · Day schedule             | `src/components/day-agenda.tsx`, under 640px on the instrument page and the embed |
 | My bookings (no artboard; composed from the home page's booking cards) | `src/app/(site)/my-bookings/page.tsx` |
 | Phone · Instruments              | not built yet                              |
-| Instrument settings (admin)      | `src/app/(site)/admin/` + `instrument-settings-form.tsx` and `admin-nav.tsx`. Instruments only so far; the Department links (instructors, advisors, maintenance, reports) aren't built, so the sidebar leaves them out |
+| Instrument settings (admin)      | `src/app/(site)/admin/` + `instrument-settings-form.tsx` and `admin-nav.tsx` |
+| Admin · Instructors, Research advisors (no artboard; composed from the Admin artboard's sections and Archive control) | `src/app/(site)/admin/instructors/`, `advisors/` + `people-roster.tsx`. The sidebar's Maintenance and Usage reports links join when those pages are built |
 
 ## Tokens: never write a colour
 

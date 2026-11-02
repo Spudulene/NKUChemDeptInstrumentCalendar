@@ -11,6 +11,12 @@ const linkClass = (current: boolean) =>
     current ? "bg-surface font-bold text-ink shadow-[inset_0_0_0_1px_var(--ui-border)]" : "font-semibold text-ink-2 hover:text-ink"
   }`;
 
+/** The canvas also lists Maintenance and Usage reports here; they join when built. */
+const DEPARTMENT = [
+  { href: "/admin/instructors", label: "Instructors" },
+  { href: "/admin/advisors", label: "Research advisors" },
+];
+
 /** The admin sidebar from the canvas. Client-side only for `usePathname`. */
 export function AdminNav({ instruments }: { instruments: AdminNavInstrument[] }) {
   const pathname = usePathname();
@@ -57,6 +63,17 @@ export function AdminNav({ instruments }: { instruments: AdminNavInstrument[] })
           <ul className="flex flex-col gap-0.5">{archived.map(item)}</ul>
         </>
       )}
+
+      <p className="mt-6 mb-2 ml-3 text-xs font-extrabold tracking-[0.08em] text-ink-3 uppercase">Department</p>
+      <ul className="flex flex-col gap-0.5">
+        {DEPARTMENT.map(({ href, label }) => (
+          <li key={href}>
+            <Link href={href} aria-current={pathname === href ? "page" : undefined} className={linkClass(pathname === href)}>
+              {label}
+            </Link>
+          </li>
+        ))}
+      </ul>
     </nav>
   );
 }

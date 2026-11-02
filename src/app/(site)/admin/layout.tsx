@@ -4,9 +4,8 @@ import { db } from "@/lib/db";
 import { AdminNav } from "@/components/admin-nav";
 
 /**
- * Admin screens: the instrument list on the left, the chosen screen on the right, as
- * on the canvas. Department pages (instructors, advisors, maintenance, reports) are
- * not built yet, so the sidebar only lists instruments.
+ * Admin screens: instruments and department pages on the left, the chosen screen on
+ * the right, as on the canvas.
  */
 export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
   const user = await getSession();
@@ -16,7 +15,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
       <div className="max-w-[680px]">
         <h1 className="text-[34px] leading-tight font-extrabold tracking-[-0.02em]">Admin</h1>
         <p className="mt-2 text-[17px] leading-normal text-ink-2">
-          Instrument settings are for the instrument manager.{" "}
+          Instrument and department settings are for the instrument manager.{" "}
           <Link href={user ? "/" : "/dev-login"} className="font-semibold underline underline-offset-4">
             {user ? "Back to instruments" : "Sign in"}
           </Link>

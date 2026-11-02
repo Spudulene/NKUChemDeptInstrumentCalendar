@@ -9,6 +9,13 @@ import {
   saveInstrumentSettings,
   setInstrumentActive,
 } from "@/lib/admin/instrument-settings";
+import {
+  PeopleError,
+  addPerson,
+  addPersonSchema,
+  removePerson,
+  type PeopleKind,
+} from "@/lib/admin/people";
 
 export type SettingsState = { error: string | null; savedAt?: number };
 
@@ -51,6 +58,53 @@ export async function saveInstrumentAction(
 
   if (!instrumentId) redirect(`/admin/instruments/${saved.slug}`);
   return { error: null, savedAt: Date.now() };
+}
+
+export type PeopleState = {
+  error: string | null;
+  /** Who was just added. */
+  added?: string;
+  /** What was typed, handed back with an error so the form keeps it. */
+  values?: { name: string; email: string };
+};
+
+const isPeopleKind = (value: unknown): value is PeopleKind =>
+  value === "instructors" || value === "advisors";
+
+/** Add an instructor or research advisor by name and email. */
+export async function addPersonAction(_prev: PeopleState, formData: FormData): Promise<PeopleState> {
+  const values = { name: String(formData.get("name") ?? ""), email: String(formData.get("email") ?? "") };
+  const user = await getSession();
+  if (user?.role !== "ADMIN") return { error: "Only admins can change department lists.", values };
+
+  const kind = formData.get("kind");
+  if (!isPeopleKind(kind)) return { error: "Couldn't read the form. Reload the page and try again.", values };
+
+  const parsed = addPersonSchema.safeParse(values);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the name and email.", values };
+
+  let added: string;
+  try {
+    added = await addPerson(kind, parsed.data);
+  } catch (error) {
+    if (error instanceof PeopleError) return { error: error.message, values };
+    console.error("[admin] adding person failed:", error);
+    return { error: "Something went wrong adding them.", values };
+  }
+
+  // Roles change the header's links; advisors appear in every research-group picker.
+  revalidatePath("/", "layout");
+  return { error: null, added };
+}
+
+export async function removePersonAction(formData: FormData) {
+  const user = await getSession();
+  if (user?.role !== "ADMIN") return;
+
+  const kind = formData.get("kind");
+  if (!isPeopleKind(kind)) return;
+  await removePerson(kind, String(formData.get("userId") ?? ""));
+  revalidatePath("/", "layout");
 }
 
 /** Archive (true → false) or restore an instrument. */

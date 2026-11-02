@@ -17,7 +17,8 @@ like it belongs.
 | My bookings (no artboard; composed from the home page's booking cards) | `src/app/(site)/my-bookings/page.tsx` |
 | Phone · Instruments              | not built yet                              |
 | Instrument settings (admin)      | `src/app/(site)/admin/` + `instrument-settings-form.tsx` and `admin-nav.tsx` |
-| Admin · Instructors, Research advisors (no artboard; composed from the Admin artboard's sections and Archive control) | `src/app/(site)/admin/instructors/`, `advisors/` + `people-roster.tsx`. The sidebar's Usage reports link joins when that page is built |
+| Admin · Instructors, Research advisors (no artboard; composed from the Admin artboard's sections and Archive control) | `src/app/(site)/admin/instructors/`, `advisors/` + `people-roster.tsx` |
+| Admin · Usage reports (no artboard; filter card plus a table in a `Card`) | `src/app/(site)/admin/reports/page.tsx`, numbers from `src/lib/admin/usage.ts`. Filters live in the URL |
 | Admin · Maintenance (no artboard; the Reserve for a class layout with start and end dates) | `src/app/(site)/admin/maintenance/` + `maintenance-form.tsx`; both forms share `impact-row.tsx` |
 
 ## Tokens: never write a colour

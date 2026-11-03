@@ -82,7 +82,7 @@ export function isOverlapViolation(error: unknown): boolean {
   );
 }
 
-async function loadContext(
+export async function loadContext(
   instrumentId: string,
   request: BookingRequest,
   bufferMinutes = 0,
@@ -160,7 +160,7 @@ async function loadContext(
  * explicit id overrides it, for a student running samples for another group. Passing
  * null clears it.
  */
-async function resolveAdvisorId(request: BookingRequest): Promise<string | null> {
+export async function resolveAdvisorId(request: BookingRequest): Promise<string | null> {
   if (request.advisorId === undefined) {
     const user = await db.user.findUnique({
       where: { id: request.userId },

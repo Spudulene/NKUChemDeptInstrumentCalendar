@@ -2,6 +2,8 @@
 
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 import type { AllowedSlot } from "@/lib/booking/quota";
+import type { AskTarget } from "@/lib/schedule-view";
+import { AskDialog } from "@/components/ask-dialog";
 import { BookingDialog, type AdvisorOption, type DialogInstrument } from "@/components/booking-dialog";
 
 type BookingContextValue = {
@@ -10,14 +12,17 @@ type BookingContextValue = {
    * pick among several start times, as the phone day list does for an open gap.
    */
   select: (slot: AllowedSlot, starts?: AllowedSlot[]) => void;
+  /** Opens "Ask for this time" on another student's booking. */
+  ask: (target: AskTarget) => void;
 };
 
 const BookingContext = createContext<BookingContextValue | null>(null);
 
 /**
  * Lets anything on the instrument page open the booking dialog: a slot in the grid,
- * an overnight cell, a gap in the phone day list, or the header's "Book time" button. Outside a provider (the
- * public embed), `useBooking()` returns null and nothing is clickable.
+ * an overnight cell, a gap in the phone day list, or the header's "Book time" button.
+ * It also opens "Ask for this time" on another student's booking. Outside a provider
+ * (the public embed), `useBooking()` returns null and nothing is clickable.
  */
 export function BookingProvider({
   instrument,
@@ -44,10 +49,14 @@ export function BookingProvider({
     (slot: AllowedSlot, starts?: AllowedSlot[]) => setSelected({ slot, starts }),
     [],
   );
-  const close = useCallback(() => setSelected(null), []);
+  const [asking, setAsking] = useState<AskTarget | null>(null);
+  const close = useCallback(() => {
+    setSelected(null);
+    setAsking(null);
+  }, []);
 
   return (
-    <BookingContext.Provider value={{ select }}>
+    <BookingContext.Provider value={{ select, ask: setAsking }}>
       {children}
       {selected && (
         <BookingDialog
@@ -59,6 +68,16 @@ export function BookingProvider({
           defaultAdvisorId={defaultAdvisorId}
           advisorRequired={advisorRequired}
           timeZone={timeZone}
+          onClose={close}
+        />
+      )}
+      {asking && (
+        <AskDialog
+          target={asking}
+          instrument={instrument}
+          advisors={advisors}
+          defaultAdvisorId={defaultAdvisorId}
+          advisorRequired={advisorRequired}
           onClose={close}
         />
       )}

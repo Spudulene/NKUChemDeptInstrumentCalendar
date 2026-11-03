@@ -403,6 +403,39 @@ export function validateBooking(
   return { ok: true, occurrence };
 }
 
+const hasNotStarted: Rule = (ctx) =>
+  ctx.request.start > ctx.now
+    ? null
+    : { code: "ALREADY_STARTED", message: "That booking has already started." };
+
+/**
+ * Taking over someone else's booking ("Ask for this time"). The time itself passed the
+ * shape, horizon, changeover and overlap rules when its holder booked it, and it
+ * keeps that window, so only what depends on who holds it is checked again: the
+ * newcomer's research group and weekly limits. Minimum notice is skipped on purpose;
+ * urgent time is the reason to ask.
+ */
+const TRANSFER_RULES: readonly Rule[] = [
+  instrumentIsActive,
+  hasNotStarted,
+  researchAdvisorRecorded,
+  underWindowWeeklyCap,
+  underWeeklyMinuteCap,
+];
+
+/** `ctx.request` is the transferred booking's time, with the newcomer as `userId`. */
+export function validateTransfer(ctx: Omit<RuleContext, "occurrence">): ValidationResult {
+  const occurrence = findContainingOccurrence(ctx.windows, ctx.request.start, ctx.request.end);
+  const full: RuleContext = { ...ctx, occurrence };
+
+  for (const rule of TRANSFER_RULES) {
+    const failure = rule(full);
+    if (failure) return { ok: false, failure };
+  }
+
+  return { ok: true, occurrence };
+}
+
 /** The rules that depend only on the shape of the windows, not on time or other people. */
 const WINDOW_SHAPE_RULES: readonly Rule[] = [
   withinOperatingWindow,

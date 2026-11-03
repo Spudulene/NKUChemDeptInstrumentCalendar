@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { BookingError, createStudentBooking } from "@/lib/booking/create";
 import { canCancel } from "@/lib/booking/rules";
+import { closeSwapRequestsFor } from "@/lib/booking/swap";
 
 export type ActionState = { error: string | null; ok?: boolean };
 
@@ -114,6 +115,9 @@ export async function cancelBookingAction(
         booking.userId === user.id ? "Cancelled by owner" : `Cancelled by ${user.name}`,
     },
   });
+
+  // Anyone asking for this time hears now, while it may still be free to book.
+  await closeSwapRequestsFor([bookingId]);
 
   revalidatePath(`/instruments/${booking.instrument.slug}`);
   revalidatePath("/my-bookings");

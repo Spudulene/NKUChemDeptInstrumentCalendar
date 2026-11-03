@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { sendPendingPreemptionNotices } from "@/lib/email";
+import { sweepSwapRequests } from "@/lib/booking/swap";
 
 /**
- * Retries preemption notices that failed their immediate send.
+ * Retries preemption notices that failed their immediate send, and sweeps swap
+ * requests: expires the ones whose booking started or was bumped with nobody
+ * answering, and retries their emails.
  *
  * This is a safety net, not the delivery path — students are mailed within seconds of
  * being bumped, by `createPriorityBooking`. This run only catches rows left unstamped
@@ -33,10 +36,10 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await sendPendingPreemptionNotices();
-    return NextResponse.json({ ok: true, ...result });
+    const [preemption, swaps] = await Promise.all([sendPendingPreemptionNotices(), sweepSwapRequests()]);
+    return NextResponse.json({ ok: true, ...preemption, swaps });
   } catch (error) {
-    console.error("[cron] preemption notices failed:", error);
+    console.error("[cron] notification run failed:", error);
     return NextResponse.json(
       { ok: false, error: "Notification run failed." },
       { status: 500 },

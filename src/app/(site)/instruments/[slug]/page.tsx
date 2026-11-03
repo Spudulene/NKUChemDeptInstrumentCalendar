@@ -66,7 +66,7 @@ export default async function InstrumentPage({
   const rangeEnd = civilToInstant(weekEnd, 0);
   const isThisWeek = civilToISODate(weekStart) === civilToISODate(sundayOf(today));
 
-  const [bookings, advisors, profile] = await Promise.all([
+  const [bookings, advisors, profile, myRequests] = await Promise.all([
     db.booking.findMany({
       where: {
         instrumentId: instrument.id,
@@ -85,7 +85,15 @@ export default async function InstrumentPage({
     user
       ? db.user.findUnique({ where: { id: user.id }, select: { advisorId: true } })
       : Promise.resolve(null),
+    // This student's open "Ask for this time" requests, so those blocks say so.
+    user?.role === "STUDENT"
+      ? db.swapRequest.findMany({
+          where: { requesterId: user.id, status: "PENDING", booking: { instrumentId: instrument.id } },
+          select: { bookingId: true },
+        })
+      : Promise.resolve([]),
   ]);
+  const asked = new Set(myRequests.map((r) => r.bookingId));
 
   // Only students book here; instructors and admins reserve class time on /classes,
   // which can displace student bookings.
@@ -140,6 +148,8 @@ export default async function InstrumentPage({
 
   const scheduleBookings: ScheduleBooking[] = bookings.map((booking) => {
     const mine = user?.id === booking.user.id;
+    // A student can ask for another student's booking until it starts.
+    const askable = canBook && !mine && booking.type === "STUDENT" && booking.startsAt > now;
     return {
       id: booking.id,
       start: booking.startsAt,
@@ -162,7 +172,13 @@ export default async function InstrumentPage({
           ? (booking.description ?? undefined)
           : booking.type === "CLASS"
             ? booking.user.name
-            : undefined,
+            : askable && asked.has(booking.id)
+              ? "You asked for this"
+              : undefined,
+      ask:
+        askable && !asked.has(booking.id)
+          ? { bookingId: booking.id, holder: booking.user.name, when: `${formatDayLabel(booking.startsAt)}, ${formatClockRange(booking.startsAt, booking.endsAt)}` }
+          : undefined,
       tone:
         booking.type === "MAINTENANCE"
           ? "maintenance"
@@ -383,9 +399,11 @@ export default async function InstrumentPage({
             {canBook
               ? "Choose any open time to book it. "
               : ""}
-            {user
-              ? "You can see who has each slot so you know who to ask about a conflict — but not what they're running."
-              : "Sign in to see who has each slot."}
+            {canBook
+              ? "Select someone's booking to ask them for that time. You see who has each slot, but not what they're running."
+              : user
+                ? "You can see who has each slot so you know who to ask about a conflict — but not what they're running."
+                : "Sign in to see who has each slot."}
           </p>
         </section>
 

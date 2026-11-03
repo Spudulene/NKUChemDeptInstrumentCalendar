@@ -164,6 +164,26 @@ nothing time-sensitive depends on the schedule, this is equally correct on Verce
 Hobby's once-a-day cron limit, on Vercel Pro, or on a systemd timer hitting the same
 URL from a university VM.
 
+### Ask for this time
+
+A student can ask another student to give up a booking (`SwapRequest`,
+[`src/lib/booking/swap.ts`](src/lib/booking/swap.ts)). It is a give-up, not a trade, and
+always the whole booking.
+
+- On accept, the holder's booking leaves `CONFIRMED` and the requester's identical one is
+  inserted, in that order and in one transaction, for the same reason as preemption.
+- The requester's research group and weekly caps are checked when asking and again on
+  accept (`validateTransfer`). The instrument's minimum notice is not: urgent time is
+  the point. Shape, horizon and changeover came with the holder's booking.
+- One open request per requester per booking is a partial unique index; the first
+  accepted wins and the rest end.
+- The holder's email link carries a single-use token (only its hash is stored) and
+  opens `/swap/<token>`, which needs no sign-in and never acts on GET — mail scanners
+  follow links.
+- Every ending mails the requester at once; the cron sweeper only expires requests whose
+  booking started unanswered (or was bumped), and retries failed sends. On a once-a-day
+  scheduler that "it ended" email can arrive late; nothing else depends on it.
+
 ### Roles
 
 `STUDENT` · `INSTRUCTOR` · `ADMIN`, stored on `User`.
@@ -261,7 +281,8 @@ the SHA rather than `main` is what makes a rollback possible.
 If they prefer their own scheduler to the `cron` container, a systemd timer making one
 authenticated request per day to `/api/cron/notifications` is equivalent. Nothing
 time-sensitive depends on it — students are mailed within seconds of being preempted, and
-this only retries what failed.
+this only retries what failed. The one thing a more frequent schedule improves is the
+"your request ended without an answer" email for swap requests, which this run sends.
 
 ### If it ever runs on Vercel and Neon again
 
@@ -299,24 +320,14 @@ a ready-made `<iframe>` snippet from the bottom of any instrument page.
 
 ## Still to build
 
-- **The rest of the design canvas.** Home, the week schedule, the booking dialog (a
-  bottom sheet on phones), class reservations and the embed follow the canvas; see
-  [docs/DESIGN.md](docs/DESIGN.md). Still to build from it: the phone day schedule on the
-  instrument page (the embed already has one), the phone instruments list, "My
-  bookings" and the admin screens.
-- **Recurring class reservations.** A lab that meets every Tuesday for a semester is
-  reserved one date at a time today.
+- **The phone instruments list** ("Phone · Instruments" on the design canvas; see
+  [docs/DESIGN.md](docs/DESIGN.md)).
 - **Entra SSO.** [`src/lib/auth.ts`](src/lib/auth.ts) has `signInFromEntra` ready for
   an OAuth callback to call. Needs an app registration with a redirect URI. The
   tenant check in that function is not optional — without it any Microsoft account on
   earth can sign in.
-- **Admin screens** for instruments, windows, and the research-advisor list.
-- **Usage reports by research group.** The data is captured and indexed
-  (`Booking.advisorId`); nothing reads it yet.
 - **Reminder emails and no-show marking** — the cron route exists; these are more jobs
-  for it.
-- **Blackout/maintenance UI.** The data model handles it today (`MAINTENANCE`
-  bookings); there is no screen for it.
+  for it. Usage reports count past confirmed bookings as used until no-shows are marked.
 
 See [docs/PROJECT-OVERVIEW.md](docs/PROJECT-OVERVIEW.md) for the non-technical
 description written for the instrument manager and IT.

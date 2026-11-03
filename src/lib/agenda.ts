@@ -11,6 +11,7 @@ import {
   minutesToClock,
 } from "@/lib/time";
 import type { CampusDay } from "@/lib/week";
+import type { AskTarget } from "@/lib/schedule-view";
 
 const MINUTE_MS = 60_000;
 
@@ -24,6 +25,7 @@ export type AgendaBooking = {
   /** A class's instructor, or what maintenance is for. */
   sublabel?: string;
   tone: Tone;
+  ask?: AskTarget;
 };
 
 type Clock = {
@@ -48,7 +50,7 @@ export type AgendaItem =
       /** Why no one can book this gap, when that's the case. */
       unbookable?: Unbookable;
     } & Clock)
-  | ({ kind: "taken"; key: string; label: string; sublabel?: string; tone: Tone } & Clock);
+  | ({ kind: "taken"; key: string; label: string; sublabel?: string; tone: Tone; ask?: AskTarget } & Clock);
 
 export type AgendaDay = {
   key: string;
@@ -171,6 +173,7 @@ export function buildAgenda(args: {
         label: b.label,
         sublabel: b.sublabel,
         tone: b.tone,
+        ask: b.ask,
         ...clock(b.start, b.end),
       }));
 

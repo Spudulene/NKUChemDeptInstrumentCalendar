@@ -223,20 +223,36 @@ function ItemList({
             </div>
           ) : (
             <div
-              className={`box-border min-h-[52px] rounded-xl px-3.5 py-2 ${TAKEN_TONE[item.tone]}`}
+              className={`box-border flex min-h-[52px] items-center justify-between gap-2.5 rounded-xl py-2 pl-3.5 ${booking && item.ask ? "pr-2" : "pr-3.5"} ${TAKEN_TONE[item.tone]}`}
             >
-              {item.tone === "class" && (
-                <span className="block text-[10px] font-extrabold tracking-[0.07em] text-gold-ink uppercase">
-                  Class
+              <span className="min-w-0">
+                {item.tone === "class" && (
+                  <span className="block text-[10px] font-extrabold tracking-[0.07em] text-gold-ink uppercase">
+                    Class
+                  </span>
+                )}
+                <span className="block text-[15px] font-bold">
+                  {item.label}
                 </span>
-              )}
-              <span className="block text-[15px] font-bold">
-                {item.label}
+                {item.sublabel && (
+                  <span className="mt-px block text-[13px] font-medium">
+                    {item.sublabel}
+                  </span>
+                )}
               </span>
-              {item.sublabel && (
-                <span className="mt-px block text-[13px] font-medium">
-                  {item.sublabel}
-                </span>
+              {booking && item.ask && (
+                <button
+                  type="button"
+                  onClick={() => booking.ask(item.ask!)}
+                  className="inline-flex min-h-11 flex-none items-center rounded-[9px] border border-line-2 bg-surface px-3.5 text-sm font-bold text-ink"
+                >
+                  Ask
+                  <span className="sr-only">
+                    {" "}
+                    {item.ask.holder} for {item.start} to {item.end}
+                    {item.endsNextDay ? " the next day" : ""}
+                  </span>
+                </button>
               )}
             </div>
           )}

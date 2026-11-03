@@ -3,6 +3,7 @@
 import type { CSSProperties } from "react";
 import { useBooking } from "@/components/booking-provider";
 import type {
+  AskTarget,
   BlockCell,
   BlockRow,
   GridBand,
@@ -28,6 +29,9 @@ const TAG: Partial<Record<ScheduleTone, { label: string; className: string }>> =
 
 const COLUMNS = "grid-cols-[72px_repeat(7,minmax(0,1fr))]";
 
+/** Another student's booking you can ask for: the "yours" colour outlines it on hover. */
+const ASKABLE = "cursor-pointer transition hover:shadow-[inset_0_0_0_2px_var(--ui-mine)] focus-visible:shadow-[inset_0_0_0_2px_var(--ui-mine)]";
+
 /**
  * A week of one instrument, laid out as in the Calendar artboard: the bookable hours
  * as a time grid, and whole-block windows (overnight runs) as a row underneath.
@@ -38,7 +42,8 @@ const COLUMNS = "grid-cols-[72px_repeat(7,minmax(0,1fr))]";
  * and browser renders identical. Positions are a fraction of each column's real span,
  * so DST days still line up.
  *
- * Slots and open overnight cells are clickable only inside a BookingProvider.
+ * Slots and open overnight cells are clickable only inside a BookingProvider, as are
+ * other students' bookings, to ask for them, when the page marks them askable.
  */
 export function WeekGrid({ view }: { view: ScheduleView }) {
   const booking = useBooking();
@@ -106,12 +111,13 @@ export function WeekGrid({ view }: { view: ScheduleView }) {
                 blocks={view.blocks}
                 slots={booking ? view.slots : []}
                 onSelect={booking?.select}
+                onAsk={booking?.ask}
               />
             ))}
           </div>
 
           {view.rows.map((row) => (
-            <BlockRowView key={row.id} row={row} onSelect={booking?.select} />
+            <BlockRowView key={row.id} row={row} onSelect={booking?.select} onAsk={booking?.ask} />
           ))}
         </div>
       </div>
@@ -128,6 +134,7 @@ function DayColumn({
   blocks,
   slots,
   onSelect,
+  onAsk,
 }: {
   day: GridDay;
   height: number;
@@ -137,6 +144,7 @@ function DayColumn({
   blocks: GridBlock[];
   slots: GridSlot[];
   onSelect?: (slot: GridSlot["slot"]) => void;
+  onAsk?: (target: AskTarget) => void;
 }) {
   const dayStart = day.start.getTime();
   const span = day.end.getTime() - dayStart;
@@ -228,11 +236,20 @@ function DayColumn({
         if (!pos) return null;
         const compact = pos.height < 46;
         const tag = TAG[block.tone];
+        // Another student's booking a signed-in student can ask for; everything else
+        // lets clicks through to the slots beneath.
+        const ask = onAsk && block.ask;
+        const Tag = ask ? "button" : "div";
         return (
-          <div
+          <Tag
             key={`${block.id}-${block.start.getTime()}`}
-            title={`${block.label}, ${block.when}`}
-            className={`pointer-events-none absolute inset-x-1 box-border overflow-hidden rounded-lg px-2 text-[13px] leading-[1.3] ${compact ? "py-0.5" : "py-1.5"} ${TONE[block.tone]}`}
+            {...(ask && {
+              type: "button" as const,
+              onClick: () => onAsk(ask),
+              "aria-label": `Ask ${ask.holder} for this time, ${block.when}`,
+            })}
+            title={ask ? `${block.label}, ${block.when} — select to ask for this time` : `${block.label}, ${block.when}`}
+            className={`${ask ? `${ASKABLE} text-left` : "pointer-events-none"} absolute inset-x-1 box-border overflow-hidden rounded-lg px-2 text-[13px] leading-[1.3] ${compact ? "py-0.5" : "py-1.5"} ${TONE[block.tone]}`}
             style={{ top: pos.top + 2, height: Math.max(pos.height - 4, 10) }}
           >
             <span className="sr-only">
@@ -259,7 +276,7 @@ function DayColumn({
                 </>
               )}
             </div>
-          </div>
+          </Tag>
         );
       })}
     </div>
@@ -278,9 +295,11 @@ function MoonIcon() {
 function BlockRowView({
   row,
   onSelect,
+  onAsk,
 }: {
   row: BlockRow;
   onSelect?: (slot: NonNullable<Extract<BlockCell, { state: "open" }>["slot"]>) => void;
+  onAsk?: (target: AskTarget) => void;
 }) {
   return (
     <div className={`grid ${COLUMNS} border-t-2 border-line-2 bg-sunken`}>
@@ -323,16 +342,28 @@ function BlockRowView({
                 <span className="sr-only">, {cell.when}</span>
               </div>
             ))}
-          {cell.state === "taken" && (
-            <div
-              title={`${cell.label}, ${cell.when}`}
-              className={`flex min-h-11 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-bold ${TONE[cell.tone]}`}
-            >
-              <MoonIcon />
-              <span className="truncate">{cell.label}</span>
-              <span className="sr-only">, {cell.when}</span>
-            </div>
-          )}
+          {cell.state === "taken" &&
+            (onAsk && cell.ask ? (
+              <button
+                type="button"
+                onClick={() => onAsk(cell.ask!)}
+                aria-label={`Ask ${cell.ask.holder} for this time, ${cell.when}`}
+                title={`${cell.label}, ${cell.when} — select to ask for this time`}
+                className={`flex min-h-11 w-full items-center gap-1.5 rounded-lg px-2.5 text-left text-[13px] font-bold ${ASKABLE} ${TONE[cell.tone]}`}
+              >
+                <MoonIcon />
+                <span className="truncate">{cell.label}</span>
+              </button>
+            ) : (
+              <div
+                title={`${cell.label}, ${cell.when}`}
+                className={`flex min-h-11 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-bold ${TONE[cell.tone]}`}
+              >
+                <MoonIcon />
+                <span className="truncate">{cell.label}</span>
+                <span className="sr-only">, {cell.when}</span>
+              </div>
+            ))}
         </div>
       ))}
     </div>

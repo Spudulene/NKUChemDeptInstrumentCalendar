@@ -42,6 +42,14 @@ enum BookingStatus {
   NO_SHOW
 }
 
+enum SwapRequestStatus {
+  PENDING
+  ACCEPTED // the holder gave the time up; the requester now has the booking
+  DECLINED // the holder kept it
+  WITHDRAWN // the requester took it back
+  EXPIRED // the booking started, or went away, before anyone answered
+}
+
 enum Weekday {
   SUN
   MON
@@ -77,10 +85,11 @@ model User {
   advisor   User?   @relation("ResearchGroup", fields: [advisorId], references: [id], onDelete: SetNull)
   advisees  User[]  @relation("ResearchGroup")
 
-  bookings        Booking[] @relation("BookingOwner")
-  createdBookings Booking[] @relation("BookingCreator")
-  advisedBookings Booking[] @relation("BookingAdvisor")
+  bookings          Booking[]           @relation("BookingOwner")
+  createdBookings   Booking[]           @relation("BookingCreator")
+  advisedBookings   Booking[]           @relation("BookingAdvisor")
   reservationSeries ReservationSeries[]
+  swapRequests      SwapRequest[]       @relation("SwapRequester")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -249,6 +258,11 @@ model Booking {
   cancelledAt        DateTime?
   cancellationReason String?
 
+  /// Other students asking the owner to give this time up.
+  swapRequests    SwapRequest[] @relation("SwapTarget")
+  /// Set on the booking a swap request produced.
+  fromSwapRequest SwapRequest?  @relation("SwapResult")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -303,4 +317,53 @@ model ReservationSeries {
 
   @@index([userId])
   @@index([instrumentId])
+}
+
+/// A student asking another student to give up a booking ("Ask for this time").
+///
+/// A give-up, not a trade: on accept the holder's booking is cancelled and an identical
+/// one created for the requester, in one transaction and in that order, or
+/// `Booking_no_overlap` rejects the insert. The requester's own weekly limits apply;
+/// the instrument's minimum notice doesn't, since urgent time is the point.
+///
+/// One PENDING request per requester per booking is enforced by a partial unique index
+/// in the migration (Prisma can't express it).
+model SwapRequest {
+  id String @id @default(cuid())
+
+  bookingId String
+  booking   Booking @relation("SwapTarget", fields: [bookingId], references: [id], onDelete: Restrict)
+
+  requesterId String
+  requester   User   @relation("SwapRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+
+  /// The research group the requester's booking would be for, chosen when asking.
+  advisorId String?
+
+  note String?
+
+  status SwapRequestStatus @default(PENDING)
+
+  /// SHA-256 of the single-use token in the holder's email link. The link opens a
+  /// confirm page and never acts on GET, because mail scanners follow links.
+  tokenHash String @unique
+
+  /// Stamped once the holder's "someone is asking" email is sent; the sweeper retries
+  /// unsent ones with a fresh token.
+  holderNotifiedAt    DateTime?
+  /// Stamped once the requester has heard how it ended.
+  requesterNotifiedAt DateTime?
+
+  respondedAt DateTime?
+
+  /// The requester's new booking, once accepted.
+  resultBookingId String?  @unique
+  resultBooking   Booking? @relation("SwapResult", fields: [resultBookingId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([bookingId, status])
+  @@index([requesterId, status])
+  @@index([status, requesterNotifiedAt])
 }

@@ -15,6 +15,8 @@ like it belongs.
 | Phone · Book time                | the booking dialog, as a bottom sheet under 640px |
 | Phone · Day schedule             | `src/components/day-agenda.tsx`, under 640px on the instrument page and the embed |
 | My bookings (no artboard; composed from the home page's booking cards) | `src/app/(site)/my-bookings/page.tsx` |
+| Ask for this time (no artboard; the booking dialog's pieces) | `ask-dialog.tsx`, opened from another student's block in `week-grid.tsx` and its Ask button in `day-agenda.tsx`. Both dialogs share `sheet-dialog.tsx` |
+| Swap link page (no artboard; a `Card` and `Notice`) | `src/app/(site)/swap/[token]/page.tsx` + `swap-answer.tsx`, also used for "Asking for your time" in My bookings |
 | Phone · Instruments              | not built yet                              |
 | Instrument settings (admin)      | `src/app/(site)/admin/` + `instrument-settings-form.tsx` and `admin-nav.tsx` |
 | Admin · Instructors, Research advisors (no artboard; composed from the Admin artboard's sections and Archive control) | `src/app/(site)/admin/instructors/`, `advisors/` + `people-roster.tsx` |

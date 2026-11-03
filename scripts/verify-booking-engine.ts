@@ -44,6 +44,14 @@ import {
   patternProblem,
   previewSeries,
 } from "@/lib/booking/series";
+import {
+  acceptSwap,
+  closeSwapRequestsFor,
+  declineSwap,
+  requestSwap,
+  sweepSwapRequests,
+  withdrawSwap,
+} from "@/lib/booking/swap";
 
 /**
  * End-to-end checks against a real Postgres. The exclusion constraint, DST-correct
@@ -530,6 +538,7 @@ async function main() {
     include: { windows: true },
   });
 
+  await db.swapRequest.deleteMany({ where: { booking: { instrumentId: instrument.id } } });
   await db.booking.deleteMany({ where: { instrumentId: instrument.id } });
   await db.reservationSeries.deleteMany({ where: { instrumentId: instrument.id } });
 
@@ -1256,6 +1265,150 @@ async function main() {
   );
 
   // -------------------------------------------------------------------------
+  section("Swap requests (Ask for this time)");
+  // -------------------------------------------------------------------------
+
+  await db.swapRequest.deleteMany({ where: { booking: { instrumentId: instrument.id } } });
+  await db.booking.deleteMany({ where: { instrumentId: instrument.id } });
+  const third = await db.user.upsert({
+    where: { email: "verify-student3@nku.edu" },
+    update: { role: "STUDENT" },
+    create: { email: "verify-student3@nku.edu", name: "Third Student", role: "STUDENT" },
+  });
+
+  // A week far enough out to be clear of everything above, inside the 60-day horizon.
+  const swapWeekTue = nextWeekday(addCivilDays(todayCivil(), 28), "TUE");
+  const swapWed = addCivilDays(swapWeekTue, 1);
+  const held = await db.booking.create({
+    data: { ...base, startsAt: civilToInstant(swapWed, hm(9)), endsAt: civilToInstant(swapWed, hm(10)) },
+  });
+  const asStudent = (u: { id: string }) => ({ id: u.id, role: "STUDENT" as const });
+  const refusal = (promise: Promise<unknown>) =>
+    promise.then(
+      () => "accepted",
+      (error) => (error instanceof BookingError ? error.failure.code : String(error)),
+    );
+
+  const ask = await requestSwap({ bookingId: held.id, requester: asStudent(other), note: "Samples won't keep" });
+  check("a student can ask for another student's booking", Boolean(ask.id));
+  check(
+    "asking twice for the same booking is refused while the first is open",
+    (await refusal(requestSwap({ bookingId: held.id, requester: asStudent(other) }))) === "ALREADY_ASKED",
+  );
+  check(
+    "a student can't ask for their own booking",
+    (await refusal(requestSwap({ bookingId: held.id, requester: asStudent(student) }))) === "OWN_BOOKING",
+  );
+  check(
+    "instructors don't ask; they reserve",
+    (await refusal(requestSwap({ bookingId: held.id, requester: { id: instructor.id, role: "INSTRUCTOR" } }))) ===
+      "FORBIDDEN",
+  );
+
+  // Minimum notice is skipped on purpose: urgent time is the point.
+  await db.instrument.update({ where: { id: instrument.id }, data: { minLeadTimeMinutes: 60 * 24 * 60 } });
+  const thirdAsk = await requestSwap({ bookingId: held.id, requester: asStudent(third) });
+  await db.instrument.update({ where: { id: instrument.id }, data: { minLeadTimeMinutes: 0 } });
+  check("the instrument's minimum notice doesn't block asking", Boolean(thirdAsk.id));
+
+  // The requester's own weekly cap still applies: one overnight a week, already used.
+  const nightHeld = await db.booking.create({
+    data: { ...base, startsAt: civilToInstant(swapWed, hm(17)), endsAt: civilToInstant(addCivilDays(swapWed, 1), hm(8)) },
+  });
+  await db.booking.create({
+    data: {
+      ...base,
+      userId: other.id,
+      createdById: other.id,
+      windowId: instrument.windows.find((w) => w.name === "Overnight")!.id,
+      startsAt: civilToInstant(swapWeekTue, hm(17)),
+      endsAt: civilToInstant(swapWed, hm(8)),
+    },
+  });
+  check(
+    "a request that would put the requester over a weekly cap is refused before it's sent",
+    (await refusal(requestSwap({ bookingId: nightHeld.id, requester: asStudent(other) }))) === "WINDOW_QUOTA",
+  );
+
+  check(
+    "only the holder can answer by request id",
+    (await refusal(acceptSwap({ requestId: ask.id, holderId: other.id }))) === "NOT_FOUND",
+  );
+  await acceptSwap({ requestId: ask.id, holderId: student.id });
+  const [heldAfter, given, askAfter, thirdAfter] = await Promise.all([
+    db.booking.findUniqueOrThrow({ where: { id: held.id } }),
+    db.booking.findFirst({
+      where: { instrumentId: instrument.id, userId: other.id, startsAt: held.startsAt, status: "CONFIRMED" },
+    }),
+    db.swapRequest.findUniqueOrThrow({ where: { id: ask.id } }),
+    db.swapRequest.findUniqueOrThrow({ where: { id: thirdAsk.id } }),
+  ]);
+  check(
+    "giving it up cancels the holder's booking and gives the requester the same time",
+    heldAfter.status === "CANCELLED" && given !== null && given.endsAt.getTime() === held.endsAt.getTime(),
+  );
+  check(
+    "the request records the booking it produced",
+    askAfter.status === "ACCEPTED" && askAfter.resultBookingId === given?.id,
+  );
+  check("other open requests for the same time end", thirdAfter.status === "EXPIRED");
+  check(
+    "answering again is refused",
+    (await refusal(acceptSwap({ requestId: ask.id, holderId: student.id }))) === "CLOSED",
+  );
+
+  const swapThu = addCivilDays(swapWed, 1);
+  const keep = await db.booking.create({
+    data: { ...base, startsAt: civilToInstant(swapThu, hm(9)), endsAt: civilToInstant(swapThu, hm(10)) },
+  });
+  const declined = await requestSwap({ bookingId: keep.id, requester: asStudent(third) });
+  await declineSwap({ requestId: declined.id, holderId: student.id });
+  check(
+    "keeping it leaves the booking and declines the request",
+    (await db.booking.findUniqueOrThrow({ where: { id: keep.id } })).status === "CONFIRMED" &&
+      (await db.swapRequest.findUniqueOrThrow({ where: { id: declined.id } })).status === "DECLINED",
+  );
+  const again = await requestSwap({ bookingId: keep.id, requester: asStudent(third) });
+  check("after a decline, the same student can ask again", Boolean(again.id));
+  await withdrawSwap({ requestId: again.id, requesterId: third.id });
+  check(
+    "a requester can withdraw",
+    (await db.swapRequest.findUniqueOrThrow({ where: { id: again.id } })).status === "WITHDRAWN",
+  );
+
+  const cancelling = await requestSwap({ bookingId: keep.id, requester: asStudent(other) });
+  await db.booking.update({ where: { id: keep.id }, data: { status: "CANCELLED", cancelledAt: new Date() } });
+  await closeSwapRequestsFor([keep.id]);
+  check(
+    "when the holder cancels, open requests for it end at once",
+    (await db.swapRequest.findUniqueOrThrow({ where: { id: cancelling.id } })).status === "EXPIRED",
+  );
+
+  // A request nobody answered before the booking started: only the sweeper sees it.
+  const startedHeld = await db.booking.create({
+    data: {
+      ...base,
+      startsAt: new Date(Date.now() - 30 * 60_000),
+      endsAt: new Date(Date.now() + 30 * 60_000),
+    },
+  });
+  const unanswered = await db.swapRequest.create({
+    data: { bookingId: startedHeld.id, requesterId: third.id, tokenHash: "verify-unanswered", holderNotifiedAt: new Date() },
+  });
+  check(
+    "a booking that has started can't be asked for",
+    (await refusal(requestSwap({ bookingId: startedHeld.id, requester: asStudent(other) }))) === "ALREADY_STARTED",
+  );
+  await sweepSwapRequests();
+  check(
+    "the sweeper ends requests whose booking started unanswered",
+    (await db.swapRequest.findUniqueOrThrow({ where: { id: unanswered.id } })).status === "EXPIRED",
+  );
+
+  await db.swapRequest.deleteMany({ where: { booking: { instrumentId: instrument.id } } });
+  await db.booking.deleteMany({ where: { instrumentId: instrument.id } });
+
+  // -------------------------------------------------------------------------
   section("Instrument settings (admin)");
   // -------------------------------------------------------------------------
 
@@ -1388,6 +1541,7 @@ async function main() {
   await db.instrument.delete({ where: { id: adminFixture.id } });
 
   // -------------------------------------------------------------------------
+  await db.swapRequest.deleteMany({ where: { booking: { instrumentId: instrument.id } } });
   await db.booking.deleteMany({ where: { instrumentId: instrument.id } });
   await db.reservationSeries.deleteMany({ where: { instrumentId: instrument.id } });
   await db.bookingWindow.deleteMany({ where: { instrumentId: instrument.id } });
@@ -1395,7 +1549,7 @@ async function main() {
   await db.user.deleteMany({
     where: {
       email: {
-        in: [student.email, other.email, instructor.email, advisor.email],
+        in: [student.email, other.email, third.email, instructor.email, advisor.email],
       },
     },
   });

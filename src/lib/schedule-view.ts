@@ -32,6 +32,14 @@ import { windowHours } from "@/lib/window-copy";
 
 export type ScheduleTone = "student" | "mine" | "class" | "maintenance";
 
+/** Another student's booking the viewer can ask for ("Ask for this time"). */
+export type AskTarget = {
+  bookingId: string;
+  holder: string;
+  /** "Wed, Nov 4, 09:00 – 10:00", formatted on the server. */
+  when: string;
+};
+
 export type ScheduleBooking = {
   id: string;
   start: Date;
@@ -39,6 +47,8 @@ export type ScheduleBooking = {
   label: string;
   sublabel?: string;
   tone: ScheduleTone;
+  /** Set only for a signed-in student, on others' bookings that haven't started. */
+  ask?: AskTarget;
 };
 
 export type GridDay = Omit<CampusDay, "date" | "start" | "end"> & {
@@ -73,7 +83,7 @@ export type BlockCell =
       /** Why no one can book it, when that's the case. */
       unbookable?: Unbookable;
     }
-  | { day: string; state: "taken"; label: string; tone: ScheduleTone; when: string };
+  | { day: string; state: "taken"; label: string; tone: ScheduleTone; when: string; ask?: AskTarget };
 
 export type BlockRow = { id: string; name: string; hours: string; cells: BlockCell[] };
 
@@ -180,7 +190,7 @@ export function buildScheduleView(args: {
           .filter((b) => b.start < occ.end && b.end > occ.start)
           .sort((a, b) => a.start.getTime() - b.start.getTime())[0];
         if (taker) {
-          return { day: d.key, state: "taken", label: taker.label, tone: taker.tone, when };
+          return { day: d.key, state: "taken", label: taker.label, tone: taker.tone, when, ask: taker.ask };
         }
         const slot =
           slots.find((s) => s.wholeBlock && s.start.getTime() === occ.start.getTime()) ?? null;

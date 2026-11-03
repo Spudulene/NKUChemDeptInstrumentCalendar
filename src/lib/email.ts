@@ -19,6 +19,8 @@ async function send(mail: Mail): Promise<boolean> {
     console.info(
       `[email] RESEND_API_KEY unset — would send to ${mail.to}: ${mail.subject}`,
     );
+    // The body too in development, so links (a swap request's) can be followed.
+    if (env.NODE_ENV !== "production") console.info(mail.text);
     return false;
   }
 
@@ -197,4 +199,186 @@ export async function deliverPreemptionNotices(
 /** Sweeper entry point for the scheduled route. */
 export function sendPendingPreemptionNotices() {
   return deliverPreemptionNotices();
+}
+
+// ---------------------------------------------------------------------------
+// Swap requests ("Ask for this time")
+// ---------------------------------------------------------------------------
+
+const button = (href: string, label: string) =>
+  `<a href="${href}" style="display:inline-block;background:#4f46e5;color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:8px;font-weight:600;">${escapeHtml(label)}</a>`;
+
+/**
+ * Tell a holder someone is asking for their time. The link carries the single-use
+ * token; it opens a page where they choose, so a mail scanner following it does
+ * nothing. Stamps `holderNotifiedAt` only after a successful send.
+ */
+export async function notifySwapHolder(requestId: string, token: string): Promise<boolean> {
+  const request = await db.swapRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      requester: { select: { name: true } },
+      booking: {
+        include: {
+          user: { select: { name: true, email: true } },
+          instrument: { select: { name: true } },
+        },
+      },
+    },
+  });
+  if (!request || request.status !== "PENDING") return false;
+
+  const { booking, requester } = request;
+  const range = formatRange(booking.startsAt, booking.endsAt);
+  const link = `${env.APP_URL}/swap/${token}`;
+  const first = booking.user.name.split(" ")[0];
+  const intro = `${requester.name} is asking if you can give them your ${booking.instrument.name} booking for ${range}.`;
+  const after =
+    "If you give it up, it becomes their booking and leaves your schedule. If you don't answer, the request ends when your booking starts. You can also answer from My bookings.";
+
+  const ok = await send({
+    to: booking.user.email,
+    subject: `${requester.name} is asking for your ${booking.instrument.name} time, ${range}`,
+    html: layout(
+      `${escapeHtml(requester.name)} is asking for your ${escapeHtml(booking.instrument.name)} time`,
+      `<p style="margin:0 0 16px;line-height:1.6;">Hi ${escapeHtml(first)},</p>
+       <p style="margin:0 0 16px;line-height:1.6;">${escapeHtml(intro)}</p>
+       ${request.note ? `<p style="margin:0 0 16px;padding:12px 16px;background:#f5f5f4;border-radius:8px;line-height:1.6;"><strong>Their note:</strong> ${escapeHtml(request.note)}</p>` : ""}
+       <p style="margin:0 0 24px;line-height:1.6;">${escapeHtml(after)}</p>
+       ${button(link, "Give it up or keep it")}`,
+    ),
+    text: [
+      `Hi ${first},`,
+      "",
+      intro,
+      request.note ? `\nTheir note: ${request.note}` : "",
+      "",
+      after,
+      "",
+      `Give it up or keep it: ${link}`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  });
+
+  if (ok) {
+    await db.swapRequest.update({ where: { id: requestId }, data: { holderNotifiedAt: new Date() } });
+  }
+  return ok;
+}
+
+/**
+ * Tell requesters how their requests ended: given, kept, or gone. With no ids, every
+ * ended request still owing an email (the sweeper's retry). Withdrawn requests are
+ * stamped when withdrawn, so they never land here.
+ */
+export async function notifySwapOutcomes(requestIds?: string[]): Promise<{ sent: number; failed: number }> {
+  const requests = await db.swapRequest.findMany({
+    where: {
+      status: { in: ["ACCEPTED", "DECLINED", "EXPIRED"] },
+      requesterNotifiedAt: null,
+      ...(requestIds ? { id: { in: requestIds } } : {}),
+    },
+    include: {
+      requester: { select: { name: true, email: true } },
+      booking: {
+        include: {
+          user: { select: { name: true } },
+          instrument: { select: { id: true, name: true, slug: true } },
+          swapRequests: { where: { status: "ACCEPTED" }, select: { id: true } },
+        },
+      },
+    },
+    take: 50,
+  });
+
+  let sent = 0;
+  let failed = 0;
+  const now = new Date();
+
+  for (const request of requests) {
+    const { booking } = request;
+    const instrument = booking.instrument.name;
+    const range = formatRange(booking.startsAt, booking.endsAt);
+    const holder = booking.user.name;
+    const calendar = `${env.APP_URL}/instruments/${booking.instrument.slug}`;
+
+    let heading: string;
+    let message: string;
+    let action: { href: string; label: string } | null = { href: calendar, label: "Find another time" };
+
+    if (request.status === "ACCEPTED") {
+      heading = `${holder} gave you their ${instrument} time`;
+      message = `The ${instrument} booking for ${range} is yours now. It's in My bookings, and the usual cancellation rules apply.`;
+      action = { href: `${env.APP_URL}/my-bookings`, label: "See My bookings" };
+    } else if (request.status === "DECLINED") {
+      heading = `${holder} is keeping their ${instrument} time`;
+      message = `${holder} is keeping the ${instrument} booking for ${range}.`;
+    } else if (booking.swapRequests.length > 0) {
+      heading = `That ${instrument} time went to someone else`;
+      message = `${holder} gave the ${instrument} booking for ${range} to another student who asked.`;
+    } else if (booking.status === "CANCELLED" && booking.startsAt > now) {
+      heading = `That ${instrument} time may be open now`;
+      message = `${holder} cancelled the ${instrument} booking for ${range}. If nobody has taken it yet, you can book it.`;
+      action = { href: calendar, label: "Book it on the calendar" };
+    } else if (booking.status === "PREEMPTED") {
+      heading = `That ${instrument} time was reserved`;
+      message = `The ${instrument} booking for ${range} was replaced by a class or maintenance, so your request has ended.`;
+    } else {
+      heading = `Your request for ${instrument} time has ended`;
+      message = `${holder} didn't answer before the ${instrument} booking for ${range} started.`;
+    }
+
+    // Openings are a nicety; the email is not worth failing over them.
+    const openings =
+      request.status === "ACCEPTED"
+        ? []
+        : await findOpenings({
+            instrumentId: booking.instrument.id,
+            durationMinutes: (booking.endsAt.getTime() - booking.startsAt.getTime()) / 60_000,
+            from: now,
+            limit: 3,
+          }).catch(() => []);
+
+    const first = request.requester.name.split(" ")[0];
+    const ok = await send({
+      to: request.requester.email,
+      subject: heading,
+      html: layout(
+        escapeHtml(heading),
+        `<p style="margin:0 0 16px;line-height:1.6;">Hi ${escapeHtml(first)},</p>
+         <p style="margin:0 0 16px;line-height:1.6;">${escapeHtml(message)}</p>
+         ${
+           openings.length
+             ? `<p style="margin:0 0 8px;font-weight:600;">Next available times:</p>
+                <ul style="margin:0 0 20px;padding-left:20px;line-height:1.7;">
+                  ${openings.map((o) => `<li>${escapeHtml(formatRange(o.start, o.end))}</li>`).join("")}
+                </ul>`
+             : ""
+         }
+         ${action ? button(action.href, action.label) : ""}`,
+      ),
+      text: [
+        `Hi ${first},`,
+        "",
+        message,
+        openings.length
+          ? `\nNext available times:\n${openings.map((o) => `  - ${formatRange(o.start, o.end)}`).join("\n")}`
+          : "",
+        "",
+        action ? `${action.label}: ${action.href}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    });
+
+    if (ok) {
+      await db.swapRequest.update({ where: { id: request.id }, data: { requesterNotifiedAt: new Date() } });
+      sent += 1;
+    } else {
+      failed += 1;
+    }
+  }
+
+  return { sent, failed };
 }

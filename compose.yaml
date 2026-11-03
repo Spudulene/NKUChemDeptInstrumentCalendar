@@ -89,10 +89,12 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  # Retries preemption notices whose immediate send failed. Explicitly NOT the delivery
-  # path — students are mailed within seconds of being bumped — so the exact hour does
-  # not matter, which is why a plain loop is enough and there is no crontab file on disk
-  # holding the bearer token. Swap in a systemd timer hitting the same URL if IT prefers.
+  # Retries notices whose immediate send failed, and ends swap requests whose booking
+  # started with no answer. Explicitly NOT the delivery path — students are mailed within
+  # seconds of being bumped or answered — so the exact minute does not matter, which is
+  # why a plain loop is enough and there is no crontab file on disk holding the bearer
+  # token. Hourly so a "your request ended" email isn't a day late. Swap in a systemd
+  # timer hitting the same URL if IT prefers.
   cron:
     profiles: ["full"]
     image: alpine:3.22
@@ -105,8 +107,8 @@ services:
       - |
         while true; do
           wget -q -O- --header="Authorization: Bearer $$CRON_SECRET" \
-            http://app:3000/api/cron/notifications || echo "[cron] sweep failed, retrying tomorrow"
-          sleep 86400
+            http://app:3000/api/cron/notifications || echo "[cron] sweep failed, retrying in an hour"
+          sleep 3600
         done
     depends_on:
       app:

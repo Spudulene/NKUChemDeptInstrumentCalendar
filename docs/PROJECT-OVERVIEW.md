@@ -152,6 +152,20 @@ This is deliberately not silent or automatic:
 - Cancelled bookings are kept on record, so "how often is this happening?" is an
   answerable question.
 
+## Asking for someone's time
+
+A student who urgently needs a slot someone else has booked can ask for it from the
+calendar. The other student gets an email and can give it up with a click — or keep
+it, with no reason needed. If they give it up, it becomes the asker's booking, under the
+asker's own weekly limits. Requests end when the booking starts. Names show only to
+signed-in students, never on the department's public page.
+
+## Reports
+
+The instrument manager can see instrument time used — hours and number of bookings —
+by research group or by instrument, for the current term or any dates, and drill from a
+group into its instruments or the other way round.
+
 ## What it deliberately does not do
 
 - **It does not track instrument training or certification.** The department doesn't
@@ -164,13 +178,14 @@ This is deliberately not silent or automatic:
 
 ## Current status
 
-Working and tested: the booking rules, the overnight and weekend handling, conflict
-prevention, class bookings and the preemption emails, the week calendar view, and
-research group attribution.
+Built and tested: booking with every instrument's rules, the week and phone day views,
+class reservations (one-off and weekly) and the emails to bumped students, maintenance
+blocks, students asking each other for time, "My bookings", the admin screens for
+instruments, instructors and research advisors, usage reports, and the embed for the
+department's website.
 
-Still to build: the booking form itself (the calendar is currently read-only), the
-admin screens for setting up instruments, connecting the university sign-in, and usage
-reports.
+Still to do before students use it: connecting the university sign-in (it needs the
+app registration below), the email setup, and loading the real instruments and people.
 
 ---
 
@@ -186,13 +201,13 @@ nothing installed on lab machines — it runs in a browser.
 | **Application** | Next.js 16 (React, TypeScript), Node.js 22 |
 | **Database** | PostgreSQL 15+ (requires the standard `btree_gist` extension) |
 | **Authentication** | Microsoft Entra ID (OpenID Connect), single-tenant |
-| **Email** | Resend (HTTPS API — no SMTP, no mail server) |
+| **Email** | Resend (HTTPS API), or the university's own relay — IT's choice, see Email |
 | **Hosting** | Docker containers on a campus VM |
 
 ## Authentication
 
-Sign-in uses the university's existing Entra ID tenant via OpenID Connect. An app
-registration already exists.
+Sign-in uses the university's existing Entra ID tenant via OpenID Connect. It needs a
+new app registration; none exists yet.
 
 - **Single-tenant.** The application rejects any sign-in whose tenant claim doesn't
   match NKU's tenant ID. Accounts from outside the university cannot authenticate.
@@ -205,6 +220,8 @@ registration already exists.
 - Sessions are HTTP-only, signed cookies with a 12-hour lifetime. Roles are read from
   the database on every request, so revoking access takes effect immediately rather
   than whenever a session happens to expire.
+- Roles (student, instructor, admin) are kept in the application, not in Entra, so
+  the instrument manager can add instructors without an IT ticket.
 
 The one operational note: the client secret in the app registration expires (24 months
 maximum). An expired secret means sign-in stops working, so it needs a calendar
@@ -219,7 +236,8 @@ Minimal, and all of it operational:
   information beyond what's already in the campus directory.
 - **Instruments** — names, locations, and scheduling rules.
 - **Bookings** — who, which instrument, start and end time, research group, and an
-  optional note.
+  optional note. Class reservations and maintenance blocks carry a title and a reason.
+- **Requests between students** for each other's time, with an optional short note.
 
 No FERPA-protected educational records, no financial data, no health data. If the
 department wants a retention policy (e.g. purge bookings older than three years), it's
@@ -252,15 +270,18 @@ The application ships as Docker images, which is how IT asked to run it.
 | `app` | The web application. One is enough for this workload. |
 | `migrate` | Applies database schema changes, then exits. Runs before `app` starts. |
 | `db` | PostgreSQL 17. Omit it if IT would rather supply the database. |
-| `cron` | Makes one authenticated request a day to a retry endpoint. |
+| `cron` | Makes one authenticated request an hour to a housekeeping endpoint. |
 
 **What the VM needs.** A Linux host with Docker, 1–2 vCPU and 2 GB RAM — this is a
-low-traffic application — plus a TLS reverse proxy in front of it and outbound HTTPS for
-sending email. Node.js does not need installing; it is inside the image.
+low-traffic application — plus a TLS reverse proxy in front of it (if it's nginx, with
+response buffering off). Outbound HTTPS to `login.microsoftonline.com` (sign-in),
+`ghcr.io` (updates) and, if Resend is used, `api.resend.com`. Nothing inbound except
+through the proxy. Node.js does not need installing; it is inside the image.
 
 **Keeping it current.** Every push to the repository's main branch builds both images and
 publishes them to GitHub Container Registry, tagged by commit. Updating is a pull and a
-restart; rolling back is pulling the previous tag. Nothing is built on the server.
+restart; rolling back is pulling the previous tag. Nothing is built on the server. If the
+images are kept private, the VM also needs a read-only GitHub token to pull them.
 
 **PostgreSQL.** Version 15 or newer, with the standard `btree_gist` extension — it ships
 with Postgres and lives in `postgresql-contrib` on Debian and Ubuntu. It is what makes
@@ -268,41 +289,74 @@ double-booking impossible at the database level rather than merely unlikely. If 
 supplies the database, the application's user needs to be able to create that extension
 once, or an administrator creates it beforehand.
 
-**Configuration** is entirely environment variables; no config files to edit. Two of them
-have no defaults and the stack refuses to start without them: the session signing key and
-the token protecting the scheduled endpoint. Both belong in whatever secret store IT
-already uses.
+**Configuration** is entirely environment variables; no config files to edit. The
+secrets: the session signing key and the token protecting the scheduled endpoint (both
+required — the stack refuses to start without them), the database password, the Entra
+client secret, and the Resend key if Resend is used. All belong in whatever secret store
+IT already uses.
 
-**The daily scheduled job is a safety net, not the delivery path.** Notification emails go
-out within seconds of a booking being preempted. This run only retries ones that failed
-because the email provider was unreachable at that moment, so nothing time-sensitive
-depends on its frequency. A systemd timer works just as well as the container.
+**The hourly scheduled job is a safety net, not the delivery path.** Emails go out
+within seconds of whatever triggers them. This run retries any that failed because the
+email provider was unreachable, and closes requests between students that nobody
+answered before the booking started. Nothing breaks if it runs less often; a systemd
+timer works just as well as the container.
 
 **Backups** are the one genuinely manual responsibility: a scheduled dump of one Postgres
 database.
 
 ## Email
 
-Sent through Resend, which is an HTTPS API rather than SMTP. No mail server, no
-relay configuration, and outbound port 587 restrictions are irrelevant.
+All of it is notification email, triggered by something a person did:
 
-Volume is very low — notification emails only, well under a hundred per month.
+- a student's booking was cancelled for a class or maintenance, with the next open times
+- another student is asking for your booking, with a link to give it up or keep it
+- how that request ended
+
+Volume is low — tens to a few hundred messages a month. Two ways to send it, and either
+is fine with us:
+
+- **Resend** (the app's current setup). An HTTPS API, so no SMTP and no mail server.
+  It needs SPF and DKIM records, which Resend generates, on the sending domain —
+  usually a subdomain such as `instruments.nku.edu`, so nothing changes on the main
+  domain's mail setup.
+- **The university's own relay** (Microsoft 365 or SMTP). If IT prefers mail to go
+  through university systems, we switch the app over before go-live; it's a small
+  change on our side. We'd need the relay host and port, credentials or an allowed-IP
+  arrangement, and the address to send from.
+
+Either way, mail should come from an nku.edu address. Students' spam filters distrust
+unfamiliar external domains, and some of these messages are time-sensitive.
+
+## Showing availability on the department's website
+
+The department's instrument schedules page currently embeds Google Calendars. Those get
+replaced with an embedded view of this calendar (`/embed/<instrument>`), which shows
+booked and open time without names. The application only allows itself to be framed by
+`nku.edu` pages. Whoever maintains the department's web pages needs to be able to add
+an `<iframe>` pointing at the new hostname.
 
 ## What we need from IT
 
-1. **A hostname** — a subdomain such as `instruments.nku.edu`, pointed at
-   the campus VM running the containers.
-2. **DNS records on that subdomain for sending email** — SPF and DKIM records, which
-   Resend generates. This is what allows notification emails to come from an
-   nku.edu address rather than an unfamiliar external domain that students' spam
-   filters will distrust.
-3. **A redirect URI added to the existing app registration**, once the hostname is
-   known. A two-minute change; no new registration needed.
-4. **The VM and Postgres instance described above**, plus a backup schedule for the
-   database.
+1. **A hostname** — a subdomain such as `instruments.nku.edu`, pointed at the campus VM
+   running the containers, with a TLS certificate.
+2. **A new Entra ID app registration**, single-tenant, as described under
+   Authentication:
+   - redirect URI `https://<hostname>/api/auth/entra/callback`
+   - delegated permissions `openid`, `profile`, `email`, `User.Read`
+   - the optional `email` claim added to the ID token
+   - and back to us: the tenant ID, the client ID, and a client secret (with its
+     expiry date).
+3. **A decision on email** — Resend with SPF/DKIM records on the subdomain, or the
+   university's relay with its connection details. See Email.
+4. **The VM described above**, with outbound HTTPS to the hosts listed.
+5. **The database** — either the bundled Postgres container, or one of IT's (15+, with
+   `btree_gist`) — and a backup schedule for it.
+6. **Somewhere to keep the secrets** listed under Configuration.
+7. **A way to embed the calendar on the department's website**, through whoever
+   maintains those pages.
 
-Nothing here is urgent — the application runs locally for development without any of
-it. Items 1 and 2 are needed before students can use it.
+Items 1–3 are what the remaining work on our side waits for: the sign-in connection is
+built against a real app registration, and the email switch, if any, before go-live.
 
 ## Ongoing maintenance
 
@@ -320,5 +374,6 @@ Low, but not zero. Realistically:
 The repository contains full technical documentation in `README.md`, including the
 architecture, the reasoning behind the design decisions, and setup instructions. The
 booking rules are covered by an automated test suite (`npm run db:verify`) that runs
-against a real database and checks 42 behaviours, including the daylight saving edge
-cases and the conflict-prevention guarantees.
+against a real database and checks 101 behaviours, including the daylight saving edge
+cases, the conflict-prevention guarantees, and handing a booking from one student to
+another.

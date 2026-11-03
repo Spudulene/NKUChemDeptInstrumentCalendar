@@ -182,7 +182,8 @@ always the whole booking.
   follow links.
 - Every ending mails the requester at once; the cron sweeper only expires requests whose
   booking started unanswered (or was bumped), and retries failed sends. On a once-a-day
-  scheduler that "it ended" email can arrive late; nothing else depends on it.
+  scheduler that "it ended" email can arrive late (the bundled `cron` container runs
+  hourly); nothing else depends on it.
 
 ### Roles
 
@@ -279,10 +280,13 @@ the SHA rather than `main` is what makes a rollback possible.
 - Database backups.
 
 If they prefer their own scheduler to the `cron` container, a systemd timer making one
-authenticated request per day to `/api/cron/notifications` is equivalent. Nothing
+authenticated request an hour to `/api/cron/notifications` is equivalent. Nothing
 time-sensitive depends on it — students are mailed within seconds of being preempted, and
-this only retries what failed. The one thing a more frequent schedule improves is the
-"your request ended without an answer" email for swap requests, which this run sends.
+this only retries what failed. Hourly rather than daily is for the "your request ended
+without an answer" email for swap requests, which this run sends; daily still works.
+
+See [docs/PROJECT-OVERVIEW.md](docs/PROJECT-OVERVIEW.md), "What we need from IT", for
+the full list as it was put to IT.
 
 ### If it ever runs on Vercel and Neon again
 
@@ -323,9 +327,14 @@ a ready-made `<iframe>` snippet from the bottom of any instrument page.
 - **The phone instruments list** ("Phone · Instruments" on the design canvas; see
   [docs/DESIGN.md](docs/DESIGN.md)).
 - **Entra SSO.** [`src/lib/auth.ts`](src/lib/auth.ts) has `signInFromEntra` ready for
-  an OAuth callback to call. Needs an app registration with a redirect URI. The
-  tenant check in that function is not optional — without it any Microsoft account on
-  earth can sign in.
+  an OAuth callback to call, at `/api/auth/entra/callback` (the redirect URI requested
+  from IT). Waiting on the app registration. The tenant check in that function is not
+  optional — without it any Microsoft account on earth can sign in.
+- **The first admin in production.** Entra sign-ins arrive as students, and
+  `ADMIN_EMAILS` only applies to the dev login and the seed, so the instrument manager
+  needs a bootstrap step.
+- **Sending through the university's relay**, if IT chooses that over Resend
+  (`src/lib/email.ts` has one `send` function to swap).
 - **Reminder emails and no-show marking** — the cron route exists; these are more jobs
   for it. Usage reports count past confirmed bookings as used until no-shows are marked.
 

@@ -187,7 +187,11 @@ export function BookingDialog({
             </Field>
           )}
 
-          <Field label="Note" hint="optional · only you and the instrument manager see this">
+          <Field
+            label="Note"
+            hint="optional · only you see this"
+            help="Don't include sensitive or personal information."
+          >
             <textarea
               name="description"
               value={note}

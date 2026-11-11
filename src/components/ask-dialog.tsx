@@ -111,7 +111,11 @@ export function AskDialog({
               </Field>
             )}
 
-            <Field label={`Note to ${first}`} hint="optional · why it's urgent helps">
+            <Field
+              label={`Note to ${first}`}
+              hint="optional · why it's urgent helps"
+              help="Don't include sensitive or personal information."
+            >
               <textarea
                 name="note"
                 value={note}
